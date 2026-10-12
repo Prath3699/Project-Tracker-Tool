@@ -1,5 +1,8 @@
 /* Issue Tracker Dashboard — SPA: hash router, pages, modals, toasts */
 
+/* ---- escape hatch for inline onclick handlers (script is strict-mode) ---- */
+window.__app = {};
+
 /* ============================ DATA ============================ */
 
 const PROGRESS = {
@@ -36,7 +39,7 @@ let TASKS = [
   { id: 'TSK-14', name: 'Enhance User Authentication with 2FA',   progress: 'Pending',   urgency: 'Minor',    assignee: 0, comments: 0 },
   { id: 'TSK-27', name: 'GDPR Compliance Updates',                progress: 'Pending',   urgency: 'Minor',    assignee: 3, comments: 0 },
   { id: 'TSK-18', name: 'Data Encryption for Sensitive Information', progress: 'In review', urgency: 'Minor', assignee: 4, comments: 3 },
-].map((t, i) => ({ ...t, idx: i }));
+].map((t, i) => ({ ...t, idx: i, project: 'q3-plan' }));
 
 /* NOTE: some task IDs repeat in the original design mockup; give every task a
    unique internal id so deep links, saved items and new tasks never collide. */
@@ -50,6 +53,24 @@ const PROJECTS = [
   { name: 'Customer Portal',    desc: 'Self-service dashboard for clients',     members: 5, open: 17 },
   { name: 'Internal Tools',     desc: 'Admin utilities and ops automation',     members: 2, open: 6 },
 ];
+
+/* Seed a few tasks into other projects so non-Q3 boards aren't dead ends */
+PROJECTS.filter(p => p.name !== 'Q3 Plan').forEach((p, pi) => {
+  const owners = [pi % PEOPLE.length, (pi + 2) % PEOPLE.length];
+  const names = [
+    `Kick-off & scope “${p.name}”`,
+    `Define success metrics for ${p.name}`,
+  ];
+  names.forEach((n, ni) => TASKS.push({
+    id: 'TSK-' + (50 + pi * 2 + ni), name: n,
+    progress: ni === 0 ? 'Ongoing' : 'Pending',
+    urgency: ['Moderate', 'Minor', 'Critical'][pi % 3],
+    assignee: owners[ni], comments: 0,
+    idx: 500 + pi * 2 + ni, project: slugifyStatic(p.name),
+  }));
+});
+
+function slugifyStatic(s) { return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''); }
 
 const INBOX_ITEMS = [
   { who: 'David Lee',  initials: 'DL', color: '#ffa575', text: 'mentioned you in “Enhance Search Functionality”', time: '10 min ago', task: 1, unread: true },
@@ -129,14 +150,20 @@ const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt
 
 let savedIds = [];
 let readFlags = {};
-try { savedIds = JSON.parse(localStorage.getItem('savedTasks') || '[]'); } catch (_) {}
-try { readFlags = JSON.parse(localStorage.getItem('inboxRead') || '{}'); } catch (_) {}
+let sortState = { key: null, dir: 1 };
+const undoStack = [];
+const LS_KEY = 'issueTracker.v1';
+
+try {
+  const s = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
+  savedIds = Array.isArray(s.saved) ? s.saved : [];
+  readFlags = s.read || {};
+} catch (_) {}
 INBOX_ITEMS.forEach((it, i) => { if (readFlags[i]) it.unread = false; });
 
 function persist() {
   try {
-    localStorage.setItem('savedTasks', JSON.stringify(savedIds));
-    localStorage.setItem('inboxRead', JSON.stringify(readFlags));
+    localStorage.setItem(LS_KEY, JSON.stringify({ saved: savedIds, read: readFlags }));
   } catch (_) { /* private mode / storage disabled — demo still works in-memory */ }
 }
 
@@ -154,7 +181,7 @@ function fallbackCopy(input, done) {
 }
 
 function metaFor(task) {
-  const i = task.idx;
+  const i = Math.max(0, TASKS.findIndex(x => x.idx === task.idx)); // position-based so metadata stays stable after deletes/inserts
   return {
     category: TASK_META.category[i % TASK_META.category.length],
     department: TASK_META.department[i % TASK_META.department.length],
@@ -164,14 +191,201 @@ function metaFor(task) {
   };
 }
 
-/* ============================ MODAL ============================ */
+/* ---------- undo history (persisted across page loads) ---------- */
+let undoHistory = [];
+try { undoHistory = JSON.parse(localStorage.getItem('undoHist') || '[]'); } catch (_) {}
+function pushHistory(label) {
+  undoHistory.unshift({ label, time: Date.now() });
+  undoHistory = undoHistory.slice(0, 30);
+  try { localStorage.setItem('undoHist', JSON.stringify(undoHistory)); } catch (_) {}
+}
+
+/* ============================ FILTERS / SORT / VISIBLE SET ============================ */
+
+const STATUS_ORDER = ['Ongoing', 'In review', 'Completed', 'Pending'];
+const URGENCY_ORDER = { Critical: 0, Moderate: 1, Minor: 2 };
+
+let filterState = { progress: '', urgency: '', assignee: '' };
+
+function visibleTasks() {
+  let list = filteredTasks(); // search term applied
+  const f = filterState;
+  if (f.progress) list = list.filter(t => t.progress === f.progress);
+  if (f.urgency)  list = list.filter(t => t.urgency === f.urgency);
+  if (f.assignee !== '') list = list.filter(t => String(t.assignee) === String(f.assignee));
+  if (sortState.key) {
+    const k = sortState.key, dir = sortState.dir;
+    list = [...list].sort((a, b) => {
+      let r = 0;
+      if (k === 'feature')  r = a.name.localeCompare(b.name);
+      if (k === 'progress') r = STATUS_ORDER.indexOf(a.progress) - STATUS_ORDER.indexOf(b.progress);
+      if (k === 'urgency')  r = URGENCY_ORDER[a.urgency] - URGENCY_ORDER[b.urgency];
+      if (k === 'assignee') r = PEOPLE[a.assignee].name.localeCompare(PEOPLE[b.assignee].name);
+      return r * dir || a.idx - b.idx;
+    });
+  }
+  return list;
+}
+
+function toolbarHtml() {
+  const active = filterState.progress || filterState.urgency || filterState.assignee !== '';
+  return `
+  <div class="table-toolbar">
+    <select id="flt-progress" class="tool-select" aria-label="Filter by progress">
+      <option value="">All progress</option>${Object.keys(PROGRESS).map(k => `<option ${filterState.progress === k ? 'selected' : ''}>${k}</option>`).join('')}
+    </select>
+    <select id="flt-urgency" class="tool-select" aria-label="Filter by urgency">
+      <option value="">All urgency</option>${Object.keys(URGENCY).map(k => `<option ${filterState.urgency === k ? 'selected' : ''}>${k}</option>`).join('')}
+    </select>
+    <select id="flt-assignee" class="tool-select" aria-label="Filter by owner">
+      <option value="">All owners</option>${PEOPLE.map((p, i) => `<option value="${i}" ${String(filterState.assignee) === String(i) ? 'selected' : ''}>${p.name}</option>`).join('')}
+    </select>
+    ${active ? '<button id="clear-filters" class="btn btn-ghost btn-sm">Clear filters ✕</button>' : ''}
+    <span class="toolbar-spacer"></span>
+    <button id="export-csv" class="btn btn-ghost btn-sm" title="Download tasks as CSV">⬇ Export CSV</button>
+  </div>`;
+}
+
+function applyFiltersAndSort() {
+  const host = $('#board-body');
+  if (!host) return;
+  const rows = visibleTasks();
+  host.innerHTML = rows.length ? taskTableHtml(rows)
+    : `<div class="empty-state">No tasks match your filters.<br><button id="clear-filters" class="btn btn-ghost btn-sm" style="margin-top:8px">Clear filters</button></div>`;
+  const bulk = $('.bulkbar');
+  if (bulk) bulk.remove();
+}
+
+function exportCsv(tasks) {
+  const head = ['ID', 'Name', 'Progress', 'Urgency', 'Assignee', 'Comments'];
+  const lines = [head.join(',')].concat(tasks.map(t =>
+    [t.id, `"${t.name.replace(/"/g, '""')}"`, t.progress, t.urgency, PEOPLE[t.assignee].name, t.comments].join(',')));
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'tasks.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 500);
+}
+
+/* ============================ MUTATIONS (edit / status / delete / undo) ============================ */
+
+function updateTaskRow(idx) {
+  const tr = document.querySelector(`.task-table tbody tr[data-idx="${idx}"]`);
+  const t = TASKS.find(x => x.idx === idx);
+  if (!tr || !t) return;
+  const fresh = document.createElement('tr');
+  fresh.innerHTML = taskRowHtml(t);
+  fresh.dataset.idx = idx; fresh.tabIndex = 0;
+  fresh.className = tr.className;
+  tr.replaceWith(fresh);
+}
+
+function startRename(idx) {
+  const cell = document.querySelector(`.task-table tbody tr[data-idx="${idx}"] .feature-name`);
+  const t = TASKS.find(x => x.idx === idx);
+  if (!cell || !t || cell.querySelector('input')) return;
+  cell.innerHTML = `<input class="rename-input" type="text" value="${esc(t.name)}" aria-label="Rename task" />`;
+  const inp = cell.querySelector('input');
+  inp.focus(); inp.select();
+  inp.addEventListener('blur', () => commit());
+  inp.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); commit(); }
+    if (e.key === 'Escape') render();
+  });
+  let done = false;
+  function commit() {
+    if (done) return; done = true;
+    const v = inp.value.trim();
+    if (v && v !== t.name) {
+      const old = t.name; t.name = v;
+      pushHistory(`Renamed “${old}” → “${v}”`);
+      undoStack.push({ label: `Rename of “${v}”`, run: () => { t.name = old; render(); } });
+      render();
+      showUndoToast(`✏ Renamed “${v}”`);
+    } else render();
+  }
+}
+
+function cycleStatus(idx) {
+  const t = TASKS.find(x => x.idx === idx); if (!t) return;
+  const old = t.progress;
+  t.progress = STATUS_ORDER[(STATUS_ORDER.indexOf(old) + 1) % STATUS_ORDER.length];
+  pushHistory(`“${t.name}”: ${old} → ${t.progress}`);
+  undoStack.push({ label: `Status change of “${t.name}”`, run: () => { t.progress = old; render(); } });
+  renderBoardBody();
+  showUndoToast(`“${t.name}”: ${old} → ${t.progress}`);
+}
+
+function deleteTask(idx) {
+  const pos = TASKS.findIndex(x => x.idx === idx); if (pos < 0) return;
+  const removed = TASKS[pos];
+  pushHistory(`Deleted “${removed.name}”`);
+  undoStack.push({ label: `Deleted “${removed.name}”`, run: () => TASKS.splice(pos, 0, removed) });
+  TASKS.splice(pos, 1);
+  render();
+  showUndoToast(`🗑 Deleted “${removed.name}”`);
+}
+
+function bulkDelete() {
+  const boxes = [...document.querySelectorAll('.row-check:checked')];
+  if (!boxes.length) return;
+  const idxs = new Set(boxes.map(b => +b.dataset.idx));
+  const removed = TASKS.filter(t => idxs.has(t.idx));
+  TASKS = TASKS.filter(t => !idxs.has(t.idx));
+  pushHistory(`Deleted ${removed.length} tasks`);
+  undoStack.push({ label: `Deleted ${removed.length} tasks`, run: () => removed.forEach(t => TASKS.push(t)) });
+  render();
+  showUndoToast(`🗑 Deleted ${removed.length} tasks`);
+}
+
+function undoLast() {
+  const op = undoStack.pop();
+  if (!op) return toast('Nothing to undo');
+  op.run(); render(); toast(`↩ Undone: ${op.label}`);
+}
+
+function showUndoToast(msg) {
+  const t = $('#toast');
+  t.innerHTML = `${esc(msg)} <button id="undo-btn" class="undo-btn">Undo</button>`;
+  t.classList.remove('hidden');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.add('hidden'), 6000);
+}
+
+window.__app.undoLast = undoLast;
+
+window.__app.startRename = startRename;
+window.__app.cycleStatus = cycleStatus;
+
+/* ============================ MODAL (with focus trap) ============================ */
+
+let lastFocused = null;
 
 function openModal(title, html) {
+  lastFocused = document.activeElement;
   $('#modal-title').textContent = title;
   $('#modal-body').innerHTML = html;
   $('#modal-overlay').classList.remove('hidden');
+  const first = $('#modal-body button, #modal-body input, #modal-body select, #modal-body textarea');
+  (first || $('#modal-close')).focus();
 }
-function closeModal() { $('#modal-overlay').classList.add('hidden'); }
+function closeModal() {
+  $('#modal-overlay').classList.add('hidden');
+  if (lastFocused && lastFocused.focus) lastFocused.focus();
+  lastFocused = null;
+}
+document.addEventListener('keydown', (e) => {
+  const overlay = $('#modal-overlay');
+  if (overlay.classList.contains('hidden')) return;
+  if (e.key !== 'Tab') return;
+  const focusables = [...overlay.querySelectorAll('button, input, select, textarea, a[href]')]
+    .filter(el => !el.disabled && el.offsetParent !== null);
+  if (!focusables.length) return;
+  const first = focusables[0], last = focusables[focusables.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
 
 $('#modal-close').addEventListener('click', closeModal);
 $('#modal-overlay').addEventListener('click', (e) => { if (e.target.id === 'modal-overlay') closeModal(); });
@@ -182,7 +396,9 @@ document.addEventListener('keydown', (e) => {
   if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'l') {
     e.preventDefault(); toggleDarkMode(); return;
   }
+  if (e.key === 'Escape') { closeModal(); return; }
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+  if ((e.metaKey || e.ctrlKey) && !typing && e.key.toLowerCase() === 'z') { e.preventDefault(); undoLast(); return; }
   if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.key === '/') { e.preventDefault(); $('#global-search').focus(); }
   if (e.key.toLowerCase() === 'n') { e.preventDefault(); showNewFeatureModal(); }
@@ -194,8 +410,9 @@ function taskRowHtml(t) {
   const p = PEOPLE[t.assignee];
   return `
     <tr data-idx="${t.idx}" tabindex="0">
-      <td><div class="feature-cell"><span class="tsk-id">${t.id}</span><span class="feature-name">${esc(t.name)}</span></div></td>
-      <td><div class="progress-cell"><span class="status-dot ${PROGRESS[t.progress].dot}"></span>${t.progress}</div></td>
+      <td class="check-cell"><input type="checkbox" class="row-check" data-idx="${t.idx}" aria-label="Select ${esc(t.name)}" /></td>
+      <td><div class="feature-cell"><span class="tsk-id">${t.id}</span><span class="feature-name" title="Double-click to rename">${esc(t.name)}</span></div></td>
+      <td><button class="progress-cell progress-btn" onclick="__app.cycleStatus(${t.idx})" title="Click to change status"><span class="status-dot ${PROGRESS[t.progress].dot}"></span>${t.progress}</button></td>
       <td><span class="pill ${URGENCY[t.urgency]}">${t.urgency}</span></td>
       <td>
         <div class="assignee">
@@ -204,13 +421,29 @@ function taskRowHtml(t) {
           ${t.comments ? `<span class="assignee-name" title="${t.comments} comments">💬 ${t.comments}</span>` : ''}
         </div>
       </td>
+      <td class="row-actions">
+        <button class="icon-btn edit-btn" onclick="__app.startRename(${t.idx})" title="Rename" aria-label="Rename task">✎</button>
+        <button class="icon-btn del-btn" data-del="${t.idx}" title="Delete" aria-label="Delete task">🗑</button>
+      </td>
     </tr>`;
+}
+
+function sortIcon(key) {
+  if (sortState.key !== key) return '<span class="sort-ind">↕</span>';
+  return `<span class="sort-ind on">${sortState.dir === 1 ? '↑' : '↓'}</span>`;
 }
 
 function taskTableHtml(tasks) {
   return `
     <table class="task-table">
-      <thead><tr><th>Feature</th><th>Progress</th><th>Urgency</th><th>Assigned to</th></tr></thead>
+      <thead><tr>
+        <th class="check-cell"></th>
+        <th><button class="th-sort" data-sort="feature">Feature ${sortIcon('feature')}</button></th>
+        <th><button class="th-sort" data-sort="progress">Progress ${sortIcon('progress')}</button></th>
+        <th><button class="th-sort" data-sort="urgency">Urgency ${sortIcon('urgency')}</button></th>
+        <th><button class="th-sort" data-sort="assignee">Assigned to ${sortIcon('assignee')}</button></th>
+        <th class="row-actions"></th>
+      </tr></thead>
       <tbody id="task-rows">${tasks.map(taskRowHtml).join('')}</tbody>
     </table>`;
 }
@@ -225,11 +458,16 @@ function propertiesPanelHtml(task) {
     <div class="props-head"><h2>Properties</h2>
       <div class="props-actions">
         <button id="save-toggle" class="icon-btn" data-idx="${task.idx}" title="${isSaved ? 'Remove from saved' : 'Save item'}">${isSaved ? '★' : '☆'}</button>
+        <button class="icon-btn" id="edit-task-btn" data-idx="${task.idx}" title="Rename task">✎</button>
+        <button class="icon-btn danger-icon" id="delete-task-btn" data-del="${task.idx}" title="Delete task">🗑</button>
       </div>
     </div>
     <dl class="props-list">
       <div class="prop-row"><dt>Task ID</dt><dd>${task.id}</dd></div>
-      <div class="prop-row"><dt>Progress</dt><dd><span class="status-dot ${PROGRESS[task.progress].dot}"></span>${task.progress}</dd></div>
+      <div class="prop-row"><dt>Progress</dt><dd>
+        <select id="prop-status" data-idx="${task.idx}" class="prop-select" aria-label="Change progress">
+          ${Object.keys(PROGRESS).map(k => `<option ${k === task.progress ? 'selected' : ''}>${k}</option>`).join('')}
+        </select></dd></div>
       <div class="prop-row"><dt>Category</dt><dd>${m.category}</dd></div>
       <div class="prop-row"><dt>Task owner</dt><dd><button class="avatar avatar-xs link-avatar" style="--a:${owner.color}" data-person="${task.assignee}">${owner.initials[0]}</button>${owner.name.split(' ')[0]}</dd></div>
       <div class="prop-row"><dt>Urgency</dt><dd><span class="pill ${URGENCY[task.urgency]}">${task.urgency}</span></dd></div>
@@ -255,10 +493,10 @@ function propertiesPanelHtml(task) {
           <div class="comment-body"><div class="comment-author">${c.who}</div><p>${esc(c.text)}</p></div>
         </li>`).join('')}
       </ul>
-      <div class="comment-input">
-        <input id="comment-box" type="text" placeholder="Write a comment" aria-label="Write a comment" />
-        <button id="comment-send" class="btn btn-primary btn-sm">Send</button>
-      </div>
+      <form id="comment-form" class="comment-input">
+        <input id="comment-box" data-idx="${task.idx}" type="text" placeholder="Write a comment (Enter to send)" aria-label="Write a comment" />
+        <button id="comment-send" class="btn btn-primary btn-sm" type="submit">Send</button>
+      </form>
     </div>
   </aside>`;
 }
@@ -276,8 +514,84 @@ function boardSectionHtml(title, tabs, activeTab, tasks) {
           Share
         </button>
       </div>
-      <div id="board-body">${tasks.length ? taskTableHtml(tasks) : `<div class="empty-state">No tasks in “${esc(title)}” yet.<br><button class="btn btn-primary btn-sm" id="new-feature-btn" style="margin-top:10px">＋ Create the first task</button></div>`}</div>
+      ${tasks.length ? `<div class="view-toggle" role="group" aria-label="Board view">
+        <button class="vt-btn ${kanbanMode ? '' : 'active'}" data-view="table" title="Table view">☰ Table</button>
+        <button class="vt-btn ${kanbanMode ? 'active' : ''}" data-view="kanban" title="Kanban board view">▦ Kanban</button>
+      </div>` : ''}
+      <div id="board-body">
+        ${tasks.length ? `${toolbarHtml()}${taskTableHtml(tasks)}`
+          : `<div class="empty-state">No tasks in “${esc(title)}” yet.<br><button class="btn btn-primary btn-sm" id="new-feature-btn" style="margin-top:10px">＋ Create the first task</button></div>`}
+      </div>
     </section>`;
+}
+
+/* ---------- Kanban view ---------- */
+let kanbanDragIdx = null;
+
+function setKanban(on) {
+  kanbanMode = on;
+  document.querySelectorAll('.view-toggle .vt-btn').forEach(b => b.classList.toggle('active', (b.dataset.view === 'kanban') === on));
+  if (on) renderKanban(); else renderBoardBody();
+}
+
+function renderKanban() {
+  const host = $('#board-body'); if (!host) return;
+  const tasks = visibleTasks();
+  if (!tasks.length) { host.innerHTML = '<div class="empty-state">No tasks match your filters.</div>'; return; }
+  host.innerHTML = `
+    <div class="kanban">
+      ${STATUS_ORDER.map(st => {
+        const col = tasks.filter(t => t.progress === st);
+        return `
+        <div class="kb-col" data-status="${st}">
+          <div class="kb-head"><span class="status-dot ${PROGRESS[st].dot}"></span><strong>${st}</strong><span class="kb-count">${col.length}</span></div>
+          <div class="kb-drop">
+            ${col.map(t => {
+              const p = PEOPLE[t.assignee];
+              return `<div class="kb-card" draggable="true" data-idx="${t.idx}" tabindex="0">
+                <div class="kb-name">${esc(t.name)}</div>
+                <div class="kb-meta"><span class="tsk-id">${t.id}</span><span class="pill ${URGENCY[t.urgency]}">${t.urgency}</span>
+                  <span class="avatar avatar-xs" style="--a:${p.color}" title="${p.name}">${p.initials[0]}</span></div>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+  host.querySelectorAll('.kb-card').forEach(card => {
+    card.addEventListener('dragstart', () => { kanbanDragIdx = +card.dataset.idx; card.classList.add('dragging'); });
+    card.addEventListener('dragend', () => { card.classList.remove('dragging'); kanbanDragIdx = null; });
+    card.addEventListener('click', () => { location.hash = `#/task/${card.dataset.idx}`; });
+    card.addEventListener('keydown', (e) => { if (e.key === 'Enter') location.hash = `#/task/${card.dataset.idx}`; });
+  });
+  host.querySelectorAll('.kb-col').forEach(col => {
+    col.addEventListener('dragover', (e) => { e.preventDefault(); col.classList.add('over'); });
+    col.addEventListener('dragleave', () => col.classList.remove('over'));
+    col.addEventListener('drop', (e) => {
+      e.preventDefault(); col.classList.remove('over');
+      if (kanbanDragIdx == null) return;
+      const t = TASKS.find(x => x.idx === kanbanDragIdx);
+      const st = col.dataset.status;
+      if (t && t.progress !== st) {
+        const old = t.progress; t.progress = st;
+        pushHistory(`Moved “${t.name}” → ${st}`);
+        undoStack.push({ label: `Move of “${t.name}”`, run: () => { t.progress = old; render(); } });
+        renderBoardBody();
+        showUndoToast(`Moved “${t.name}” → ${st}`);
+      }
+    });
+  });
+}
+
+function renderBoardBody() {
+  const host = $('#board-body'); if (!host) return;
+  const activeTab = document.querySelector('.tab.active');
+  const isOverview = ['project', 'task'].includes(currentRoute) && activeTab && activeTab.dataset.tab === '0';
+  if (isOverview) { host.innerHTML = overviewHtml(); return; }
+  const rows = visibleTasks();
+  host.innerHTML = toolbarHtml() + (rows.length ? taskTableHtml(rows)
+    : `<div class="empty-state">No tasks match your search or filters.<br><button id="clear-filters" class="btn btn-ghost btn-sm" style="margin-top:8px">Clear filters</button></div>`);
+  updateBulkBar();
 }
 
 /* ============================ ROUTER ============================ */
@@ -413,7 +727,7 @@ routes.projects = () => {
           <button class="project-card" data-project="${i}">
             <div class="pc-avatar" style="--a:${PEOPLE[i % 5].color}">${pr.name.split(' ').map(w => w[0]).join('').slice(0, 2)}</div>
             <h3>${pr.name}</h3><p>${pr.desc}</p>
-            <div class="pc-meta"><span>${pr.members} members</span><span>${pr.open} open tasks</span></div>
+            <div class="pc-meta"><span>${pr.members} members</span><span>${TASKS.filter(t => t.project === slugify(pr.name) && t.progress !== 'Completed').length} open tasks</span></div>
           </button>`).join('')}
       </div>
     </section>`;
@@ -422,16 +736,23 @@ routes.projects = () => {
 routes.project = (param) => {
   const pr = PROJECTS.find(p => slugify(p.name) === param);
   if (!pr) { location.hash = '#/projects'; return ''; }
+  currentProject = slugify(pr.name);            // scope board/filters/search to this project
+  const tasks = scopedTasks();
   setCrumbs([{ label: 'Overview', hash: '#/home' }, { label: 'Projects', hash: '#/projects' }, { label: pr.name }]);
-  // Tasks belong to the Q3 Plan board; other projects show an empty board + CTA
-  const tasks = pr.name === 'Q3 Plan' ? TASKS : [];
   const selected = tasks[0] || TASKS[0];
   return `
     <div class="content-split">
-      ${boardSectionHtml(pr.name, ['Overview', `Tasks ${tasks.length}`], 1, tasks)}
+      ${boardSectionHtml(pr.name, ['Overview', `Tasks ${tasks.length}`, 'Board'], tasks.length ? (kanbanMode ? 2 : 1) : 1, tasks)}
       ${propertiesPanelHtml(selected)}
     </div>`;
 };
+
+/* Board view mode toggle (table ↔ kanban) */
+let kanbanMode = false;
+
+/* Active project scope — boards, filters and search only show this project's tasks */
+let currentProject = 'q3-plan';
+function scopedTasks() { return TASKS.filter(t => t.project === currentProject); }
 
 routes.calendar = () => {
   setCrumbs([{ label: 'Workspace' }, { label: 'Calendar' }]);
@@ -500,10 +821,10 @@ routes.channel = (param) => {
             <div class="chat-body"><div class="chat-top"><strong>${m.who}</strong><em>${m.time}</em></div>
             <p>${esc(m.text)}</p></div></li>`).join('') || '<div class="empty-state">No messages yet — say hi!</div>'}
       </ul>
-      <div class="comment-input chat-input">
-        <input id="chat-box" type="text" placeholder="Message # ${name}" aria-label="Send a message" />
-        <button id="chat-send" class="btn btn-primary btn-sm">Send</button>
-      </div>
+      <form id="chat-form" class="comment-input chat-input">
+        <input id="chat-box" type="text" placeholder="Message # ${name} (Enter to send)" aria-label="Send a message" />
+        <button id="chat-send" class="btn btn-primary btn-sm" type="submit">Send</button>
+      </form>
     </section>`;
 };
 
@@ -583,6 +904,7 @@ function showNewFeatureModal() {
       <label>Progress<select id="nf-progress">${Object.keys(PROGRESS).map(k => `<option>${k}</option>`).join('')}</select></label>
       <label>Urgency<select id="nf-urgency">${Object.keys(URGENCY).map(k => `<option>${k}</option>`).join('')}</select></label>
       <label>Assignee<select id="nf-assignee">${PEOPLE.map((p, i) => `<option value="${i}">${p.name}</option>`).join('')}</select></label>
+      <label>Project<select id="nf-project">${PROJECTS.map(p => `<option value="${slugify(p.name)}" ${slugify(p.name) === currentProject ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
       <button type="submit" class="btn btn-primary">Create task</button>
     </form>`);
 }
@@ -644,7 +966,7 @@ document.body.addEventListener('click', (e) => {
     return;
   }
   if (el.id === 'new-project-btn') {
-    return openModal('New project', `<form id="new-project-form"><label>Project name<input id="np-name" type="text" required placeholder="e.g. Mobile App v3" /></label><button class="btn btn-primary">Create project</button></form>`);
+    return openModal('New project', `<form id="new-project-form"><label>Project name<input id="np-name" type="text" required placeholder="e.g. Mobile App v3" /></label><label>Owner<select id="np-owner">${PEOPLE.map((p, i) => `<option value="${i}">${p.name}</option>`).join('')}</select></label><button class="btn btn-primary">Create project</button></form>`);
   }
   if (el.dataset.person !== undefined) {
     const p = PEOPLE[+el.dataset.person];
@@ -663,20 +985,6 @@ document.body.addEventListener('click', (e) => {
     else { savedIds.push(idx); toast('★ Saved item'); }
     persist(); render(); return;
   }
-  if (el.id === 'comment-send') {
-    const box = $('#comment-box'); const v = box.value.trim();
-    if (!v) return;
-    const li = document.createElement('li');
-    li.innerHTML = `<span class="avatar avatar-sm" style="--a:#43b3ff">PS</span><div class="comment-body"><div class="comment-author">Priya Sharma</div><p>${esc(v)}</p></div>`;
-    $('#comment-list').appendChild(li); box.value = ''; return;
-  }
-  if (el.id === 'chat-send') {
-    const box = $('#chat-box'); const v = box.value.trim();
-    if (!v) return;
-    const li = document.createElement('li');
-    li.innerHTML = `<span class="avatar avatar-sm" style="--a:#43b3ff">PS</span><div class="chat-body"><div class="chat-top"><strong>Priya Sharma</strong><em>now</em></div><p>${esc(v)}</p></div>`;
-    $('.chat-list').appendChild(li); box.value = ''; return;
-  }
   if (el.id === 'save-settings') return toast('✔ Settings saved');
   if (el.id === 'reset-data') {
     try { localStorage.clear(); } catch (_) {}
@@ -685,11 +993,11 @@ document.body.addEventListener('click', (e) => {
     location.hash = '#/home'; render(); return toast('Demo data reset');
   }
   if (el.id === 'contact-support') return openModal('Contact support', `<form id="support-form"><label>Subject<input type="text" required /></label><label>Message<textarea rows="4" required></textarea></label><button class="btn btn-primary">Send message</button></form>`);
-  if (el.id === 'keyboard-shortcuts') return openModal('Keyboard shortcuts', `<ul class="shortcuts"><li><kbd>N</kbd> New feature</li><li><kbd>/</kbd> Focus search</li><li><kbd>Esc</kbd> Close dialogs</li></ul>`);
+  if (el.id === 'keyboard-shortcuts') return openModal('Keyboard shortcuts', `<ul class="shortcuts"><li><kbd>N</kbd> New feature</li><li><kbd>/</kbd> Focus search</li><li><kbd>Esc</kbd> Close dialogs</li><li><kbd>Ctrl/Cmd</kbd>+<kbd>Z</kbd> Undo last change</li><li><kbd>Ctrl/Cmd</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> Toggle dark mode</li><li><kbd>Enter</kbd> on a focused row opens the task</li></ul>`);
 
   // task row selection inside boards
   const tr = e.target.closest('.task-table tbody tr');
-  if (tr && !e.target.closest('.link-avatar')) {
+  if (tr && !e.target.closest('.link-avatar') && !e.target.closest('button') && !e.target.closest('input')) {
     document.querySelectorAll('.task-table tbody tr.selected').forEach(r => r.classList.remove('selected'));
     tr.classList.add('selected');
     const propsHost = document.querySelector('.content-split .properties') || document.querySelector('.page-pad .properties');
@@ -698,9 +1006,42 @@ document.body.addEventListener('click', (e) => {
       fresh.innerHTML = propertiesPanelHtml(TASKS[+tr.dataset.idx]);
       propsHost.replaceWith(fresh.firstElementChild);
     } else {
-      location.hash = `#/task/${tr.dataset.idx}`;
+      const t = TASKS.find(x => x.idx === +tr.dataset.idx);
+      if (t) location.hash = `#/task/${t.idx}`;
     }
   }
+
+  /* ---- delete with confirm dialog ---- */
+  if (el.dataset.del !== undefined) {
+    const t = TASKS.find(x => x.idx === +el.dataset.del);
+    if (!t) return;
+    return openModal('Delete task?', `
+      <p class="modal-lead">“${esc(t.name)}” will be removed from the board. You can undo right after.</p>
+      <div class="settings-actions">
+        <button id="confirm-delete" data-idx="${t.idx}" class="btn btn-primary danger">Delete</button>
+        <button id="cancel-delete" class="btn btn-ghost">Cancel</button>
+      </div>`);
+  }
+  if (el.id === 'confirm-delete') { deleteTask(+el.dataset.idx); closeModal(); return; }
+  if (el.id === 'cancel-delete') { closeModal(); return; }
+
+  /* ---- rename from Properties panel ---- */
+  if (el.id === 'edit-task-btn') { startRename(+el.dataset.idx); return; }
+
+  /* ---- column sorting ---- */
+  if (el.classList.contains('th-sort')) {
+    const key = el.dataset.sort;
+    if (sortState.key === key) sortState.dir *= -1;
+    else sortState = { key, dir: 1 };
+    renderBoardBody();
+    return;
+  }
+
+  /* ---- clear filters / export csv / bulk actions / undo ---- */
+  if (el.id === 'clear-filters') { filterState = { progress: '', urgency: '', assignee: '' }; renderBoardBody(); return; }
+  if (el.id === 'export-csv') { exportCsv(visibleTasks()); return toast('⬇ tasks.csv downloaded'); }
+  if (el.id === 'bulk-delete') { bulkDelete(); return; }
+  if (el.id === 'undo-btn') { undoLast(); return; }
 
   // tabs on boards
   const tab = e.target.closest('.tab');
@@ -711,33 +1052,94 @@ document.body.addEventListener('click', (e) => {
     const i = +tab.dataset.tab;
     const host = $('#board-body');
     if (!host) return;
+    if (i === 2) { kanbanMode = true; renderKanban(); return; }
+    kanbanMode = false;
     if (currentRoute === 'mytasks') {
       const mine = TASKS.filter(t => t.assignee === 0);
       host.innerHTML = taskTableHtml(i === 0 ? mine.filter(t => t.progress === 'Ongoing') : mine);
     } else {
-      host.innerHTML = i === 0 ? overviewHtml() : taskTableHtml(filteredTasks());
+      host.innerHTML = i === 0 ? overviewHtml() : (toolbarHtml() + (() => { const rows = visibleTasks(); return rows.length ? taskTableHtml(rows) : '<div class="empty-state">No tasks match your search or filters.</div>'; })());
     }
+  }
+});
+
+/* ---- bulk action bar (appears when rows are checked) ---- */
+document.body.addEventListener('change', (e) => {
+  if (e.target.classList.contains('row-check')) updateBulkBar();
+  if (e.target.id === 'flt-progress') { filterState.progress = e.target.value; renderBoardBody(); }
+  if (e.target.id === 'flt-urgency')  { filterState.urgency = e.target.value; renderBoardBody(); }
+  if (e.target.id === 'flt-assignee') { filterState.assignee = e.target.value; renderBoardBody(); }
+  if (e.target.id === 'prop-status') {
+    const idx = +e.target.dataset.idx;
+    const t = TASKS.find(x => x.idx === idx);
+    if (t) {
+      const old = t.progress; t.progress = e.target.value;
+      updateTaskRow(idx);
+      showUndoToast(`Status → ${t.progress}`);
+      undoStack.push({ label: `Status change`, run: () => { t.progress = old; render(); } });
+    }
+  }
+});
+
+function updateBulkBar() {
+  const n = document.querySelectorAll('.row-check:checked').length;
+  let bar = $('.bulkbar');
+  if (!n) { if (bar) bar.remove(); return; }
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.className = 'bulkbar';
+    bar.innerHTML = `<span id="bulk-count"></span><button id="bulk-delete" class="btn btn-primary btn-sm danger">🗑 Delete selected</button>`;
+    ($('.board') || document.body).appendChild(bar);
+  }
+  bar.querySelector('#bulk-count').textContent = `${n} selected`;
+}
+
+/* double-click a task name to rename inline */
+document.body.addEventListener('dblclick', (e) => {
+  const name = e.target.closest('.feature-name');
+  if (name) {
+    const tr = name.closest('tr[data-idx]');
+    if (tr) startRename(+tr.dataset.idx);
+  }
+});
+
+/* keyboard: Enter on a focused row opens the task; ↑/↓ move between rows */
+document.body.addEventListener('keydown', (e) => {
+  const tr = e.target.closest('.task-table tbody tr[data-idx]');
+  if (!tr || e.target.tagName === 'INPUT') return;
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const t = TASKS.find(x => x.idx === +tr.dataset.idx);
+    if (t) location.hash = `#/task/${t.idx}`;
+  }
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const rows = [...document.querySelectorAll('.task-table tbody tr[data-idx]')];
+    const i = rows.indexOf(tr);
+    const next = rows[i + (e.key === 'ArrowDown' ? 1 : -1)];
+    if (next) next.focus();
   }
 });
 
 /* Overview tab content for the project board */
 function overviewHtml() {
+  const scope = (currentRoute === 'project' || currentRoute === 'task') ? scopedTasks() : TASKS;
   const counts = {};
-  TASKS.forEach(t => counts[t.progress] = (counts[t.progress] || 0) + 1);
+  scope.forEach(t => counts[t.progress] = (counts[t.progress] || 0) + 1);
   return `
     <div class="overview">
       <h3>Status breakdown</h3>
       <div class="bar-chart">
         ${Object.entries(counts).map(([k, v]) => `
           <div class="bar-row"><span class="bar-label"><span class="status-dot ${PROGRESS[k].dot}"></span>${k}</span>
-          <div class="bar-track"><div class="bar-fill" style="width:${Math.round(v / TASKS.length * 100)}%"></div></div>
+          <div class="bar-track"><div class="bar-fill" style="width:${Math.round(v / Math.max(scope.length,1) * 100)}%"></div></div>
           <span class="bar-count">${v}</span></div>`).join('')}
       </div>
       <h3>Team</h3>
       <div class="team-row">
         ${PEOPLE.map((p, i) => `<button class="avatar link-avatar" data-person="${i}" style="--a:${p.color}" title="${p.name}">${p.initials}</button>`).join('')}
       </div>
-      <p class="modal-lead">Switch to the <strong>Tasks</strong> tab to see all ${TASKS.length} features.</p>
+      <p class="modal-lead">Switch to the <strong>Tasks</strong> tab to see all ${scope.length} features.</p>
     </div>`;
 }
 
@@ -745,10 +1147,12 @@ function overviewHtml() {
 routes.task = (param) => {
   const t = TASKS.find(x => x.idx === +param);
   if (!t) { location.hash = '#/project/q3-plan'; return ''; }
-  setCrumbs([{ label: 'Overview', hash: '#/home' }, { label: 'Projects', hash: '#/projects' }, { label: 'Q3 Plan', hash: '#/project/q3-plan' }, { label: t.name }]);
+  currentProject = t.project || 'q3-plan';   // scope the board to this task's project
+  const prName = (PROJECTS.find(p => slugify(p.name) === currentProject) || { name: 'Q3 Plan' }).name;
+  setCrumbs([{ label: 'Overview', hash: '#/home' }, { label: 'Projects', hash: '#/projects' }, { label: prName, hash: `#/project/${currentProject}` }, { label: t.name }]);
   return `
     <div class="content-split">
-      ${boardSectionHtml('Q3 Plan', ['Overview', 'Tasks'], 1, filteredTasks())}
+      ${boardSectionHtml(prName, ['Overview', `Tasks ${scopedTasks().length}`, 'Board'], kanbanMode ? 2 : 1, filteredTasks())}
       ${propertiesPanelHtml(t)}
     </div>`;
 };
@@ -758,19 +1162,30 @@ routes.task = (param) => {
 let searchTerm = '';
 function filteredTasks() {
   const q = searchTerm.trim().toLowerCase();
-  return TASKS.filter(t => !q || t.name.toLowerCase().includes(q) || t.id.toLowerCase().includes(q));
+  const base = (currentRoute === 'project' || currentRoute === 'task') ? scopedTasks() : TASKS;
+  return base.filter(t => !q || t.name.toLowerCase().includes(q) || t.id.toLowerCase().includes(q));
 }
 
 $('#global-search').addEventListener('input', (e) => {
   searchTerm = e.target.value;
-  const tbody = $('#task-rows');
-  if (tbody) {
-    const rows = filteredTasks();
-    tbody.innerHTML = rows.length ? rows.map(taskRowHtml).join('')
-      : `<tr><td colspan="4" class="no-results">No tasks match “${esc(searchTerm)}”.</td></tr>`;
-  } else if (searchTerm.trim()) {
+  const onBoard = ['project', 'task'].includes(currentRoute);
+  if (onBoard && $('#board-body')) {
+    renderBoardBody(); // keeps toolbar, filters and sort intact
+  } else if (!onBoard && searchTerm.trim()) {
     // searching from a non-board page: jump to the Q3 board with the filter applied
     location.hash = '#/project/q3-plan';
+  } else if (!onBoard) {
+    // live search results for Home / My tasks / Saved tables
+    const tbody = $('#task-rows');
+    if (tbody) {
+      const scope = currentRoute === 'mytasks' ? TASKS.filter(t => t.assignee === 0)
+                  : currentRoute === 'saved'   ? TASKS.filter(t => savedIds.includes(t.idx))
+                  : TASKS;
+      const q = searchTerm.trim().toLowerCase();
+      const rows = scope.filter(t => !q || t.name.toLowerCase().includes(q) || t.id.toLowerCase().includes(q));
+      tbody.innerHTML = rows.length ? rows.map(taskRowHtml).join('')
+        : `<tr><td colspan="6" class="no-results">No tasks match “${esc(searchTerm)}”.</td></tr>`;
+    }
   }
 });
 $('#global-search').addEventListener('keydown', (e) => {
@@ -788,6 +1203,7 @@ document.body.addEventListener('submit', (e) => {
       id: 'TSK-' + (nextTaskNum++), name,
       progress: $('#nf-progress').value, urgency: $('#nf-urgency').value,
       assignee: +$('#nf-assignee').value, comments: 0, idx: nextTaskNum * 1000, // unique stable key
+      project: $('#nf-project') ? $('#nf-project').value : 'q3-plan',
     });
     closeModal(); toast(`✔ Created “${name}”`);
     if (!location.hash.startsWith('#/project') && !location.hash.startsWith('#/task')) location.hash = '#/project/q3-plan';
@@ -802,6 +1218,36 @@ document.body.addEventListener('submit', (e) => {
   }
   if (e.target.id === 'support-form') {
     e.preventDefault(); closeModal(); toast('✉ Message sent to support');
+  }
+  if (e.target.id === 'comment-form') {
+    e.preventDefault();
+    const box = $('#comment-box'); const v = box.value.trim();
+    if (!v) return;
+    const idx = +box.dataset.idx;
+    const t = TASKS.find(x => x.idx === idx);
+    (DISCUSSIONS[idx] = DISCUSSIONS[idx] || [...DISCUSSIONS.default]).push({ who: 'Priya Sharma', initials: 'PS', color: '#43b3ff', text: v });
+    if (t) t.comments = (t.comments || 0) + 1;
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="avatar avatar-sm" style="--a:#43b3ff">PS</span><div class="comment-body"><div class="comment-author">Priya Sharma</div><p>${esc(v)}</p></div>`;
+    $('#comment-list').appendChild(li);
+    box.value = '';
+    updateTaskRow(idx);
+    toast('💬 Comment posted');
+  }
+  if (e.target.id === 'chat-form') {
+    e.preventDefault();
+    const box = $('#chat-box'); const v = box.value.trim();
+    if (!v) return;
+    const key = parseHash().param || 'engineering';
+    (CHANNEL_MESSAGES[key] = CHANNEL_MESSAGES[key] || []).push({ who: 'Priya Sharma', initials: 'PS', color: '#43b3ff', text: v, time: new Date().toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' }) });
+    const list = $('.chat-list');
+    if (list.querySelector('.empty-state')) render();
+    else {
+      const li = document.createElement('li');
+      li.innerHTML = `<span class="avatar avatar-sm" style="--a:#43b3ff">PS</span><div class="chat-body"><div class="chat-top"><strong>Priya Sharma</strong><em>now</em></div><p>${esc(v)}</p></div>`;
+      list.appendChild(li);
+    }
+    box.value = '';
   }
 });
 

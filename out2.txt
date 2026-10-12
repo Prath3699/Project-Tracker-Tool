@@ -1,0 +1,30 @@
+PASS inbox route renders
+PASS board rows exist
+PASS search filters board
+PASS new feature adds task
+PASS cycle status
+FAIL rename task :: Error: locator.fill: Error: Input of type "checkbox" cannot be filled
+FAIL sort header toggles :: TimeoutError: locator.click: Timeout 5000ms exceeded.
+FAIL save star in properties :: Error: no save control
+FAIL post comment :: TimeoutError: locator.fill: Timeout 5000ms exceeded.
+FAIL kanban view :: Error: no kanban toggle
+FAIL delete + undo toast :: Error: 16->16
+PASS export csv
+PASS bulk select bar
+PASS inbox item -> task page
+FAIL dark mode persists :: Error: no toggle found
+PASS esc closes modal
+FAIL dead anchors scan :: Error: home: 2 dead anchors
+PASS sidebar nav clicks
+PASS channels list page + all channel links
+PASS send channel message
+PASS new project modal creates project
+PASS upgrade modal plan select
+PASS share modal copy link
+PASS avatar person modal
+FAIL calendar event click :: Error: no events
+PASS help faq expand
+FAIL notification bell :: Error: no bell
+
+--- JS ERRORS ---
+none
