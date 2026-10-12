@@ -1,0 +1,14 @@
+node:internal/process/promises:391
+    triggerUncaughtException(err, true /* fromPromise */);
+    ^
+
+locator.click: Timeout 30000ms exceeded.
+Call log:
+[2m  - waiting for locator('#confirm-delete')[22m
+
+    at /workspace/test_mytasks_audit.js:122:41 {
+  log: [ "  - waiting for locator('#confirm-delete')" ],
+  name: 'TimeoutError'
+}
+
+Node.js v20.20.2

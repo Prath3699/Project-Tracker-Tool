@@ -1,18 +1,158 @@
-Traceback (most recent call last):
-  File "<frozen runpy>", line 198, in _run_module_as_main
-  File "<frozen runpy>", line 88, in _run_code
-  File "/usr/local/lib/python3.12/http/server.py", line 1314, in <module>
-    test(
-  File "/usr/local/lib/python3.12/http/server.py", line 1261, in test
-    with ServerClass(addr, HandlerClass) as httpd:
-         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/socketserver.py", line 457, in __init__
-    self.server_bind()
-  File "/usr/local/lib/python3.12/http/server.py", line 1308, in server_bind
-    return super().server_bind()
-           ^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/http/server.py", line 136, in server_bind
-    socketserver.TCPServer.server_bind(self)
-  File "/usr/local/lib/python3.12/socketserver.py", line 478, in server_bind
-    self.socket.bind(self.server_address)
-OSError: [Errno 98] Address already in use
+nohup: ignoring input
+127.0.0.1 - - [12/Oct/2026 18:26:34] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:26:34] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:26:37] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:26:37] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:27:07] "GET /?spm=a2ty_o07.30620332.0.0.c1343da9taxeqo HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:27:08] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:27:08] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:31:33] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:31:33] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:31:33] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:31:36] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:31:36] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:31:36] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:31:45] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:31:45] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:31:45] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:35:01] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:35:01] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:35:48] "GET /styles.css HTTP/1.1" 304 -
+127.0.0.1 - - [12/Oct/2026 18:35:48] "GET /app.js HTTP/1.1" 304 -
+127.0.0.1 - - [12/Oct/2026 18:38:59] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:39:34] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:39:34] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:39:34] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:43:38] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:43:38] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:43:42] "GET /?spm=a2ty_o07.30620332.0.0.c1343da9taxeqo HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:43:43] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:43:43] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:50:46] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:50:47] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:51:46] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:51:46] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:51:46] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:52:38] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:52:38] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:52:38] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:52:42] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:52:42] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:52:42] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:52:55] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:52:55] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:52:55] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:53:00] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:53:00] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:53:00] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:53:16] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:53:16] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:53:16] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:53:21] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:53:21] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:53:21] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:53:31] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:53:31] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:53:31] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:53:33] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:53:33] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:53:33] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:53:36] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:53:36] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:53:36] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:55:26] "GET /?spm=a2ty_o07.30620332.0.0.c1343da9taxeqo HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:55:27] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:55:27] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:56:51] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:56:51] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:56:51] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:57:00] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:57:00] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:57:00] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:57:02] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:57:02] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:57:02] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 18:57:04] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:00:54] "GET /?spm=a2ty_o07.30620332.0.0.c1343da9taxeqo HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:00:54] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:00:54] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:01:16] "GET /?spm=a2ty_o07.30620332.0.0.c1343da9taxeqo HTTP/1.1" 304 -
+127.0.0.1 - - [12/Oct/2026 19:01:19] "GET /?spm=a2ty_o07.30620332.0.0.c1343da9taxeqo HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:01:19] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:01:19] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:03:27] "GET /app.js HTTP/1.1" 304 -
+127.0.0.1 - - [12/Oct/2026 19:03:27] "GET /styles.css HTTP/1.1" 304 -
+127.0.0.1 - - [12/Oct/2026 19:03:31] "GET /?spm=a2ty_o07.30620332.0.0.c1343da9taxeqo HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:03:31] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:03:31] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:08:49] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:08:49] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:08:49] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:09:21] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:09:21] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:09:21] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:09:54] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:09:54] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:10:00] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:10:00] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:10:00] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:10:02] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:10:02] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:10:02] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:10:11] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:10:11] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:10:11] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:10:14] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:10:14] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:10:14] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:10:21] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:10:21] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:10:21] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:10:23] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:10:23] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:10:23] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:10:30] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:10:30] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:10:30] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:10:38] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:10:38] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:10:38] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:10:48] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:10:48] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:10:48] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:11:29] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:11:29] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:11:29] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:12:30] "GET /?spm=a2ty_o07.30620332.0.0.c1343da9taxeqo HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:12:31] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:12:31] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:12:34] "GET /?spm=a2ty_o07.30620332.0.0.c1343da9taxeqo HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:12:34] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:12:34] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:27:51] "GET /?spm=a2ty_o07.30620332.0.0.c1343da9taxeqo HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:27:52] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:27:52] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:28:21] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:28:33] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:28:36] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:28:36] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:29:01] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:29:01] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:29:02] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:29:26] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:29:26] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:29:26] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:29:37] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:29:37] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:29:38] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:29:47] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:29:47] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:29:47] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:29:58] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:29:58] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:30:02] "GET /?spm=a2ty_o07.30620332.0.0.c1343da9taxeqo HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:30:02] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:30:02] "GET /app.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:30:05] "GET /?spm=a2ty_o07.30620332.0.0.c1343da9taxeqo HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:30:05] "GET /styles.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Oct/2026 19:30:05] "GET /app.js HTTP/1.1" 200 -

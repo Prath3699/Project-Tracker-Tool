@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Issue Tracker — Home</title>
+  <title>TaskHive — Issue Tracker</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -16,10 +16,16 @@
     <!-- ======================= SIDEBAR ======================= -->
     <aside class="sidebar">
       <div class="org">
-        <div class="org-avatar">C</div>
+        <div class="org-avatar" aria-hidden="true">
+          <!-- Beehive logo -->
+          <svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M6 8.5h16M4.5 14h19M6 19.5h16" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>
+            <path d="M8 4h12l3 4.5H5L8 4Zm-3.5 5.5h19L26 14H2l2.5-4.5ZM5 19.5h18l-2.5 4.5H7.5L5 19.5Z" fill="#fff" opacity=".28"/>
+          </svg>
+        </div>
         <div class="org-info">
-          <div class="org-name">C&nbsp;Atlas,&nbsp;Inc</div>
-          <div class="org-status"><span class="sync-dot"></span>Syncing up</div>
+          <div class="org-name">TaskHive</div>
+          <div class="org-status"><span class="sync-dot"></span>Project Tracker</div>
         </div>
       </div>
 
@@ -114,7 +120,7 @@
     </div>
   </div>
 
-  <div id="toast" class="toast hidden"></div>
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
   <script src="app.js"></script>
 </body>
