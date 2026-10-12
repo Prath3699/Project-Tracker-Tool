@@ -181,7 +181,7 @@ function fallbackCopy(input, done) {
 }
 
 function metaFor(task) {
-  const i = task.idx;
+  const i = Math.max(0, TASKS.findIndex(x => x.idx === task.idx)); // position-based so metadata stays stable after deletes/inserts
   return {
     category: TASK_META.category[i % TASK_META.category.length],
     department: TASK_META.department[i % TASK_META.department.length],
@@ -189,6 +189,15 @@ function metaFor(task) {
     added: TASK_META.dates[i % TASK_META.dates.length],
     deadline: TASK_META.deadlines[i % TASK_META.deadlines.length],
   };
+}
+
+/* ---------- undo history (persisted across page loads) ---------- */
+let undoHistory = [];
+try { undoHistory = JSON.parse(localStorage.getItem('undoHist') || '[]'); } catch (_) {}
+function pushHistory(label) {
+  undoHistory.unshift({ label, time: Date.now() });
+  undoHistory = undoHistory.slice(0, 30);
+  try { localStorage.setItem('undoHist', JSON.stringify(undoHistory)); } catch (_) {}
 }
 
 /* ============================ FILTERS / SORT / VISIBLE SET ============================ */
@@ -290,8 +299,10 @@ function startRename(idx) {
     const v = inp.value.trim();
     if (v && v !== t.name) {
       const old = t.name; t.name = v;
-      toast(`✏ Renamed “${v}”`);
-      showUndoToast(`Renamed “${old}”`, () => { t.name = old; render(); });
+      pushHistory(`Renamed “${old}” → “${v}”`);
+      undoStack.push({ label: `Rename of “${v}”`, run: () => { t.name = old; render(); } });
+      render();
+      showUndoToast(`✏ Renamed “${v}”`);
     } else render();
   }
 }
@@ -300,13 +311,16 @@ function cycleStatus(idx) {
   const t = TASKS.find(x => x.idx === idx); if (!t) return;
   const old = t.progress;
   t.progress = STATUS_ORDER[(STATUS_ORDER.indexOf(old) + 1) % STATUS_ORDER.length];
-  updateTaskRow(idx);
-  showUndoToast(`“${t.name}”: ${old} → ${t.progress}`, () => { t.progress = old; render(); });
+  pushHistory(`“${t.name}”: ${old} → ${t.progress}`);
+  undoStack.push({ label: `Status change of “${t.name}”`, run: () => { t.progress = old; render(); } });
+  renderBoardBody();
+  showUndoToast(`“${t.name}”: ${old} → ${t.progress}`);
 }
 
 function deleteTask(idx) {
   const pos = TASKS.findIndex(x => x.idx === idx); if (pos < 0) return;
   const removed = TASKS[pos];
+  pushHistory(`Deleted “${removed.name}”`);
   undoStack.push({ label: `Deleted “${removed.name}”`, run: () => TASKS.splice(pos, 0, removed) });
   TASKS.splice(pos, 1);
   render();
@@ -319,6 +333,7 @@ function bulkDelete() {
   const idxs = new Set(boxes.map(b => +b.dataset.idx));
   const removed = TASKS.filter(t => idxs.has(t.idx));
   TASKS = TASKS.filter(t => !idxs.has(t.idx));
+  pushHistory(`Deleted ${removed.length} tasks`);
   undoStack.push({ label: `Deleted ${removed.length} tasks`, run: () => removed.forEach(t => TASKS.push(t)) });
   render();
   showUndoToast(`🗑 Deleted ${removed.length} tasks`);
@@ -337,6 +352,8 @@ function showUndoToast(msg) {
   clearTimeout(t._timer);
   t._timer = setTimeout(() => t.classList.add('hidden'), 6000);
 }
+
+window.__app.undoLast = undoLast;
 
 window.__app.startRename = startRename;
 window.__app.cycleStatus = cycleStatus;
@@ -497,6 +514,10 @@ function boardSectionHtml(title, tabs, activeTab, tasks) {
           Share
         </button>
       </div>
+      ${tasks.length ? `<div class="view-toggle" role="group" aria-label="Board view">
+        <button class="vt-btn ${kanbanMode ? '' : 'active'}" data-view="table" title="Table view">☰ Table</button>
+        <button class="vt-btn ${kanbanMode ? 'active' : ''}" data-view="kanban" title="Kanban board view">▦ Kanban</button>
+      </div>` : ''}
       <div id="board-body">
         ${tasks.length ? `${toolbarHtml()}${taskTableHtml(tasks)}`
           : `<div class="empty-state">No tasks in “${esc(title)}” yet.<br><button class="btn btn-primary btn-sm" id="new-feature-btn" style="margin-top:10px">＋ Create the first task</button></div>`}
@@ -506,6 +527,12 @@ function boardSectionHtml(title, tabs, activeTab, tasks) {
 
 /* ---------- Kanban view ---------- */
 let kanbanDragIdx = null;
+
+function setKanban(on) {
+  kanbanMode = on;
+  document.querySelectorAll('.view-toggle .vt-btn').forEach(b => b.classList.toggle('active', (b.dataset.view === 'kanban') === on));
+  if (on) renderKanban(); else renderBoardBody();
+}
 
 function renderKanban() {
   const host = $('#board-body'); if (!host) return;
@@ -547,9 +574,10 @@ function renderKanban() {
       const st = col.dataset.status;
       if (t && t.progress !== st) {
         const old = t.progress; t.progress = st;
+        pushHistory(`Moved “${t.name}” → ${st}`);
+        undoStack.push({ label: `Move of “${t.name}”`, run: () => { t.progress = old; render(); } });
         renderBoardBody();
         showUndoToast(`Moved “${t.name}” → ${st}`);
-        undoStack.push({ label: `Move of “${t.name}”`, run: () => { t.progress = old; render(); } });
       }
     });
   });
