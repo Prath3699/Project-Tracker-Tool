@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Issue Tracker — Home</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+
+    <!-- ======================= SIDEBAR ======================= -->
+    <aside class="sidebar">
+      <div class="org">
+        <div class="org-avatar">C</div>
+        <div class="org-info">
+          <div class="org-name">C&nbsp;Atlas,&nbsp;Inc</div>
+          <div class="org-status"><span class="sync-dot"></span>Syncing up</div>
+        </div>
+      </div>
+
+      <nav class="side-nav">
+        <a href="#/home" data-route="home" class="nav-item">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5 10 3l7 6.5"/><path d="M5 8.5V17h10V8.5"/></svg>
+          Home
+        </a>
+        <a href="#/inbox" data-route="inbox" class="nav-item">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="15" height="12" rx="2"/><path d="m3.5 6 6.5 5 6.5-5"/></svg>
+          Inbox
+        </a>
+        <a href="#/saved" data-route="saved" class="nav-item">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h10a1 1 0 0 1 1 1v13l-6-3.5L4 17V4a1 1 0 0 1 1-1Z"/></svg>
+          Saved items
+        </a>
+
+        <div class="nav-section">Workspace</div>
+        <a href="#/mytasks" data-route="mytasks" class="nav-item">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 10h12M10 4v12"/></svg>
+          My tasks
+        </a>
+        <a href="#/projects" data-route="projects" class="nav-item">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="11" y="3" width="6" height="6" rx="1"/><rect x="3" y="11" width="6" height="6" rx="1"/><rect x="11" y="11" width="6" height="6" rx="1"/></svg>
+          Projects
+        </a>
+        <a href="#/calendar" data-route="calendar" class="nav-item">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="3" y="4" width="14" height="13" rx="2"/><path d="M3 8h14M7 2.5V5M13 2.5V5"/></svg>
+          Calendar
+        </a>
+        <a href="#/roadmaps" data-route="roadmaps" class="nav-item">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 15c4-8 10-8 14-8"/><circle cx="16" cy="7" r="1.6"/></svg>
+          Roadmaps
+        </a>
+
+        <div class="nav-section">Your channels</div>
+        <a href="#/channel/engineering" data-route="channel" data-param="engineering" class="nav-item channel"><span class="ch-hash">#</span>Engineering</a>
+        <a href="#/channel/docs" data-route="channel" data-param="docs" class="nav-item channel"><span class="ch-hash">#</span>Docs</a>
+        <a href="#/channel/teams" data-route="channel" data-param="teams" class="nav-item channel"><span class="ch-hash">#</span>Teams</a>
+        <a href="#/channel/initiatives" data-route="channel" data-param="initiatives" class="nav-item channel"><span class="ch-hash">#</span>Initiatives</a>
+        <a href="#/channel/active-sprint" data-route="channel" data-param="active-sprint" class="nav-item channel"><span class="ch-hash">#</span>Active sprint</a>
+        <a href="#/channel/design" data-route="channel" data-param="design" class="nav-item channel"><span class="ch-hash">#</span>Design</a>
+        <a href="#/channel/marketing" data-route="channel" data-param="marketing" class="nav-item channel"><span class="ch-hash">#</span>Marketing</a>
+      </nav>
+
+      <div class="trial-card">
+        <p>There are <strong>6 days</strong> left in your trial.<br />Upgrade for unlimited access.</p>
+        <button id="upgrade-btn" class="btn btn-primary btn-sm">Upgrade</button>
+      </div>
+
+      <div class="side-footer">
+        <a href="#/settings" data-route="settings" class="nav-item">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="10" cy="10" r="3"/><path d="M10 2.5v2.2M10 15.3v2.2M2.5 10h2.2M15.3 10h2.2M4.7 4.7l1.6 1.6M13.7 13.7l1.6 1.6M15.3 4.7l-1.6 1.6M6.3 13.7l-1.6 1.6"/></svg>
+          Settings
+        </a>
+        <a href="#/help" data-route="help" class="nav-item">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="10" cy="10" r="7.5"/><path d="M7.8 7.8a2.2 2.2 0 1 1 3.2 2c-.7.5-1 .9-1 1.9M10 14.3v.2"/></svg>
+          Help &amp; support
+        </a>
+      </div>
+    </aside>
+
+    <!-- ======================= MAIN AREA ======================= -->
+    <main class="main">
+
+      <!-- Top bar -->
+      <header class="topbar">
+        <nav class="crumbs" id="crumbs"></nav>
+        <div class="search">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="9" cy="9" r="5.5"/><path d="m13.5 13.5 3.5 3.5"/></svg>
+          <input id="global-search" type="text" placeholder="Find feature" aria-label="Find feature" />
+        </div>
+        <button id="new-feature-btn" class="btn btn-primary">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 10h12M10 4v12"/></svg>
+          New feature
+        </button>
+      </header>
+
+      <!-- Page content injected by the router -->
+      <div class="content" id="page"></div>
+    </main>
+  </div>
+
+  <!-- ======================= MODAL ======================= -->
+  <div id="modal-overlay" class="modal-overlay hidden">
+    <div class="modal" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <h2 id="modal-title">New feature</h2>
+        <button id="modal-close" class="icon-btn" aria-label="Close">✕</button>
+      </div>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
