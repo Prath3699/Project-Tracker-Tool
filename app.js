@@ -6,10 +6,11 @@ window.__app = {};
 /* ============================ DATA ============================ */
 
 const PROGRESS = {
-  Ongoing:     { dot: 'dot-ongoing' },
-  Completed:   { dot: 'dot-completed' },
-  'In review': { dot: 'dot-review' },
-  Pending:     { dot: 'dot-pending' },
+  Ongoing:     { dot: 'dot-ongoing',     pill: 'prog-ongoing' },
+  Completed:   { dot: 'dot-completed',   pill: 'prog-completed' },
+  'In review': { dot: 'dot-review',      pill: 'prog-review' },
+  Pending:     { dot: 'dot-pending',     pill: 'prog-pending' },
+  'On hold':   { dot: 'dot-on-hold',     pill: 'prog-hold' },
 };
 
 const URGENCY = { Critical: 'pill-critical', Moderate: 'pill-moderate', Minor: 'pill-minor' };
@@ -209,6 +210,7 @@ let filterState = { progress: '', urgency: '', assignee: '' };
 
 function visibleTasks() {
   let list = filteredTasks(); // search term applied
+  if (currentRoute === 'mytasks' && myTaskFilter) list = list.filter(t => t.progress === myTaskFilter);
   const f = filterState;
   if (f.progress) list = list.filter(t => t.progress === f.progress);
   if (f.urgency)  list = list.filter(t => t.urgency === f.urgency);
@@ -242,7 +244,7 @@ function toolbarHtml() {
     </select>
     ${active ? '<button id="clear-filters" class="btn btn-ghost btn-sm">Clear filters ✕</button>' : ''}
     <span class="toolbar-spacer"></span>
-    <button id="export-csv" class="btn btn-ghost btn-sm" title="Download tasks as CSV">⬇ Export CSV</button>
+    <button data-export class="btn btn-ghost btn-sm" title="Download tasks as CSV">⬇ Export CSV</button>
   </div>`;
 }
 
@@ -313,7 +315,7 @@ function cycleStatus(idx) {
   t.progress = STATUS_ORDER[(STATUS_ORDER.indexOf(old) + 1) % STATUS_ORDER.length];
   pushHistory(`“${t.name}”: ${old} → ${t.progress}`);
   undoStack.push({ label: `Status change of “${t.name}”`, run: () => { t.progress = old; render(); } });
-  renderBoardBody();
+  if ($('#board-body')) renderBoardBody(); else render(); // board pages vs mytasks/home/saved tables
   showUndoToast(`“${t.name}”: ${old} → ${t.progress}`);
 }
 
@@ -358,6 +360,17 @@ window.__app.undoLast = undoLast;
 window.__app.startRename = startRename;
 window.__app.cycleStatus = cycleStatus;
 
+const URGENCY_CYCLE = ['Critical', 'Moderate', 'Minor'];
+window.__app.cycleUrgency = function (idx) {
+  const t = TASKS.find(x => x.idx === idx); if (!t) return;
+  const old = t.urgency;
+  t.urgency = URGENCY_CYCLE[(URGENCY_CYCLE.indexOf(old) + 1) % URGENCY_CYCLE.length];
+  pushHistory(`“${t.name}”: urgency ${old} → ${t.urgency}`);
+  undoStack.push({ label: `Urgency change of “${t.name}”`, run: () => { t.urgency = old; render(); } });
+  if ($('#board-body')) renderBoardBody(); else render();
+  showUndoToast(`“${t.name}”: ${old} → ${t.urgency}`);
+};
+
 /* ============================ MODAL (with focus trap) ============================ */
 
 let lastFocused = null;
@@ -389,7 +402,11 @@ document.addEventListener('keydown', (e) => {
 
 $('#modal-close').addEventListener('click', closeModal);
 $('#modal-overlay').addEventListener('click', (e) => { if (e.target.id === 'modal-overlay') closeModal(); });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeColMenus(); closeModal(); } });
+
+/* close column menus on scroll/resize so they don't float detached */
+window.addEventListener('scroll', () => { if (document.querySelector('.col-menu')) closeColMenus(); }, true);
+window.addEventListener('resize', () => { if (document.querySelector('.col-menu')) closeColMenus(); });
 
 /* Keyboard shortcuts: N = new feature, / = focus search (when not typing) */
 document.addEventListener('keydown', (e) => {
@@ -412,8 +429,8 @@ function taskRowHtml(t) {
     <tr data-idx="${t.idx}" tabindex="0">
       <td class="check-cell"><input type="checkbox" class="row-check" data-idx="${t.idx}" aria-label="Select ${esc(t.name)}" /></td>
       <td><div class="feature-cell"><span class="tsk-id">${t.id}</span><span class="feature-name" title="Double-click to rename">${esc(t.name)}</span></div></td>
-      <td><button class="progress-cell progress-btn" onclick="__app.cycleStatus(${t.idx})" title="Click to change status"><span class="status-dot ${PROGRESS[t.progress].dot}"></span>${t.progress}</button></td>
-      <td><span class="pill ${URGENCY[t.urgency]}">${t.urgency}</span></td>
+      <td><button class="progress-cell progress-btn ${PROGRESS[t.progress]?.pill || 'prog-hold'}" onclick="__app.cycleStatus(${t.idx})" title="Click to change status"><span class="status-dot ${PROGRESS[t.progress]?.dot || 'dot-on-hold'}"></span>${t.progress}</button></td>
+      <td><button class="urgency-cell pill ${URGENCY[t.urgency]}" onclick="__app.cycleUrgency(${t.idx})" title="Click to change urgency">${t.urgency}</button></td>
       <td>
         <div class="assignee">
           <button class="avatar link-avatar" style="--a:${p.color}" data-person="${t.assignee}" title="${p.name}">${p.initials}</button>
@@ -433,15 +450,89 @@ function sortIcon(key) {
   return `<span class="sort-ind on">${sortState.dir === 1 ? '↑' : '↓'}</span>`;
 }
 
+/* ---- column header: sort + filter dropdown menu ---- */
+
+function colHead(key, label) {
+  const canFilter = key !== 'feature';
+  const fVal = canFilter ? (key === 'assignee' ? filterState.assignee : filterState[key]) : '';
+  const filtered = canFilter && fVal !== '' && fVal !== undefined;
+  const sorted = sortState.key === key;
+  const arrow = sorted ? (sortState.dir === 1 ? '↑' : '↓') : '';
+  return `<button class="th-btn${filtered ? ' is-filtered' : ''}" data-menu="col:${key}"
+      aria-haspopup="true" aria-expanded="false" title="${canFilter ? 'Sort & filter' : 'Sort'} by ${label}">
+    <span>${label}</span>${arrow ? `<span class="th-arrow">${arrow}</span>` : ''}
+    ${filtered ? '<span class="th-filter-dot" aria-hidden="true"></span>' : ''}
+    <svg class="th-caret" width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5 6 7.5 9 4.5"/></svg>
+  </button>`;
+}
+
+function colMenuHtml(key) {
+  const labels = { feature: 'Feature', progress: 'Progress', urgency: 'Urgency', assignee: 'Assigned to' };
+  const dirOpts = [
+    { act: `sort:${key}:asc`, icon: '↑', label: 'A → Z', active: sortState.key === key && sortState.dir === 1 },
+    { act: `sort:${key}:desc`, icon: '↓', label: 'Z → A', active: sortState.key === key && sortState.dir === -1 },
+  ];
+  let filterOpts = [];
+  if (key === 'progress') filterOpts = Object.keys(PROGRESS).map(k => ({ val: k, label: k, dot: PROGRESS[k].dot }));
+  if (key === 'urgency')  filterOpts = Object.keys(URGENCY).map(k => ({ val: k, label: k, pill: URGENCY[k] }));
+  if (key === 'assignee') filterOpts = PEOPLE.map((p, i) => ({ val: String(i), label: p.name, avatar: p }));
+  const cur = key === 'assignee' ? filterState.assignee : filterState[key];
+  const isFiltered = cur !== '' && cur !== undefined;
+  return `
+    <div class="menu-sec">Sort ${labels[key]}</div>
+    ${dirOpts.map(o => `<button class="menu-item${o.active ? ' active' : ''}" data-menuact="${o.act}">
+      <span class="mi-icon mi-arrow">${o.icon}</span><span class="mi-label">${o.label}</span>${o.active ? '<span class="mi-check">✓</span>' : ''}</button>`).join('')}
+    ${filterOpts.length ? `
+      <div class="menu-sep"></div>
+      <div class="menu-sec">Filter ${labels[key]}</div>
+      <button class="menu-item${!isFiltered ? ' active' : ''}" data-menuact="clearf:${key}">
+        <span class="mi-icon">◎</span><span class="mi-label">All</span>${!isFiltered ? '<span class="mi-check">✓</span>' : ''}</button>
+      ${filterOpts.map(o => `<button class="menu-item${String(cur) === o.val ? ' active' : ''}" data-menuact="setf:${key}:${encodeURIComponent(o.val)}">
+        <span class="mi-icon">${o.dot ? `<span class="status-dot ${o.dot}"></span>` : o.pill ? `<span class="pill ${o.pill} pill-xs">${esc(o.label)}</span>` : o.avatar ? `<span class="avatar avatar-xs" style="--a:${o.avatar.color}">${o.avatar.initials[0]}</span>` : ''}</span>
+        <span class="mi-label">${esc(o.label)}</span>${String(cur) === o.val ? '<span class="mi-check">✓</span>' : ''}</button>`).join('')}
+    ` : ''}`;
+}
+
+function closeColMenus() {
+  document.querySelectorAll('.col-menu').forEach(m => m.remove());
+  document.querySelectorAll('.th-btn[aria-expanded="true"]').forEach(b => b.setAttribute('aria-expanded', 'false'));
+}
+
+function openColMenu(btn) {
+  const wasOpen = btn.getAttribute('aria-expanded') === 'true';
+  closeColMenus();
+  if (wasOpen) return;
+  btn.setAttribute('aria-expanded', 'true');
+  const key = btn.dataset.menu.split(':')[1];
+  const menu = document.createElement('div');
+  menu.className = 'col-menu';
+  menu.innerHTML = colMenuHtml(key);
+  document.body.appendChild(menu);
+  const r = btn.getBoundingClientRect();
+  const mw = menu.offsetWidth, mh = menu.offsetHeight;
+  let left = Math.min(Math.max(8, r.left), window.innerWidth - mw - 8);
+  let top = r.bottom + 6;
+  if (top + mh > window.innerHeight - 8) top = Math.max(8, r.top - mh - 6);
+  menu.style.left = left + 'px';
+  menu.style.top = top + 'px';
+}
+
+function refreshViews() {
+  // re-render whatever table views are on screen so sort/filter changes apply everywhere
+  if (currentRoute === 'mytasks') { render(); return; }
+  if ($('#board-body')) { kanbanMode ? renderKanban() : renderBoardBody(); return; }
+  render();
+}
+
 function taskTableHtml(tasks) {
   return `
     <table class="task-table">
       <thead><tr>
         <th class="check-cell"></th>
-        <th><button class="th-sort" data-sort="feature">Feature ${sortIcon('feature')}</button></th>
-        <th><button class="th-sort" data-sort="progress">Progress ${sortIcon('progress')}</button></th>
-        <th><button class="th-sort" data-sort="urgency">Urgency ${sortIcon('urgency')}</button></th>
-        <th><button class="th-sort" data-sort="assignee">Assigned to ${sortIcon('assignee')}</button></th>
+        <th>${colHead('feature', 'Feature')}</th>
+        <th>${colHead('progress', 'Progress')}</th>
+        <th>${colHead('urgency', 'Urgency')}</th>
+        <th>${colHead('assignee', 'Assigned to')}</th>
         <th class="row-actions"></th>
       </tr></thead>
       <tbody id="task-rows">${tasks.map(taskRowHtml).join('')}</tbody>
@@ -534,11 +625,8 @@ function setKanban(on) {
   if (on) renderKanban(); else renderBoardBody();
 }
 
-function renderKanban() {
-  const host = $('#board-body'); if (!host) return;
-  const tasks = visibleTasks();
-  if (!tasks.length) { host.innerHTML = '<div class="empty-state">No tasks match your filters.</div>'; return; }
-  host.innerHTML = `
+function kanbanColsHtml(tasks) {
+  return `
     <div class="kanban">
       ${STATUS_ORDER.map(st => {
         const col = tasks.filter(t => t.progress === st);
@@ -553,11 +641,14 @@ function renderKanban() {
                 <div class="kb-meta"><span class="tsk-id">${t.id}</span><span class="pill ${URGENCY[t.urgency]}">${t.urgency}</span>
                   <span class="avatar avatar-xs" style="--a:${p.color}" title="${p.name}">${p.initials[0]}</span></div>
               </div>`;
-            }).join('')}
+            }).join('') || '<div class="kb-empty">Drop tasks here</div>'}
           </div>
         </div>`;
       }).join('')}
     </div>`;
+}
+
+function wireKanban(host) {
   host.querySelectorAll('.kb-card').forEach(card => {
     card.addEventListener('dragstart', () => { kanbanDragIdx = +card.dataset.idx; card.classList.add('dragging'); });
     card.addEventListener('dragend', () => { card.classList.remove('dragging'); kanbanDragIdx = null; });
@@ -576,11 +667,19 @@ function renderKanban() {
         const old = t.progress; t.progress = st;
         pushHistory(`Moved “${t.name}” → ${st}`);
         undoStack.push({ label: `Move of “${t.name}”`, run: () => { t.progress = old; render(); } });
-        renderBoardBody();
+        refreshViews();
         showUndoToast(`Moved “${t.name}” → ${st}`);
       }
     });
   });
+}
+
+function renderKanban() {
+  const host = $('#board-body'); if (!host) return;
+  const tasks = visibleTasks();
+  if (!tasks.length) { host.innerHTML = '<div class="empty-state">No tasks match your filters.</div>'; return; }
+  host.innerHTML = kanbanColsHtml(tasks);
+  wireKanban(host);
 }
 
 function renderBoardBody() {
@@ -611,6 +710,10 @@ function render() {
   currentRoute = name;
   pageEl.innerHTML = fn(param);
   setActiveNav(name, param);
+  if (name === 'mytasks' && mtView === 'board') {
+    const c = $('.mt-content');
+    if (c) wireKanban(c);
+  }
   window.scrollTo(0, 0);
 }
 
@@ -702,19 +805,112 @@ routes.saved = () => {
     </section>`;
 };
 
-routes.mytasks = () => {
-  setCrumbs([{ label: 'Workspace' }, { label: 'My tasks' }]);
-  const mine = TASKS.filter(t => t.assignee === 0);
-  if (!mine.length) {
-    return `<section class="page-pad"><div class="page-head"><h1>My tasks</h1></div>
-      <div class="empty-state">No tasks assigned to you yet.</div></section>`;
-  }
+/* ---- My Tasks page: view mode (grouped / table / board) ---- */
+let mtView = (() => { try { return localStorage.getItem('mtView') || 'grouped'; } catch (_) { return 'grouped'; } })();
+function setMtView(v) {
+  mtView = v;
+  try { localStorage.setItem('mtView', v); } catch (_) {}
+  render();
+}
+
+function mtToolbarHtml() {
+  const f = filterState;
+  const chips = [];
+  if (myTaskFilter) chips.push({ key: 'status', label: `Status: ${myTaskFilter}` });
+  if (f.progress)   chips.push({ key: 'progress', label: `Progress: ${f.progress}` });
+  if (f.urgency)    chips.push({ key: 'urgency', label: `Urgency: ${f.urgency}` });
+  if (f.assignee !== '') chips.push({ key: 'assignee', label: `Owner: ${PEOPLE[+f.assignee] ? PEOPLE[+f.assignee].name : f.assignee}` });
+  const chipHtml = chips.map(c => `<button class="mt-chip" data-mtchip="${c.key}" title="Remove filter">${esc(c.label)}<span class="mt-chip-x">✕</span></button>`).join('');
+  const seg = (v, icon, label) => `<button class="mt-seg-btn${mtView === v ? ' active' : ''}" data-mtview="${v}" aria-pressed="${mtView === v}" title="${label} view">${icon}<span>${label}</span></button>`;
   return `
-    <div class="content-split">
-      ${boardSectionHtml('My tasks', ['Ongoing', 'All mine'], 0, mine.filter(t => t.progress === 'Ongoing'))}
-      ${propertiesPanelHtml(mine[0])}
+  <div class="mt-toolbar">
+    <div class="mt-search-wrap">
+      <svg class="mt-search-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
+      <input id="mt-search" class="mt-search" type="search" placeholder="Search your tasks…" value="${esc(searchTerm)}" aria-label="Search my tasks">
+    </div>
+    ${chipHtml}
+    ${chips.length ? '<button id="clear-mytasks-filter" class="btn btn-ghost btn-sm">Clear all ✕</button>' : ''}
+    <span class="toolbar-spacer"></span>
+    <div class="mt-seg" role="group" aria-label="View mode">${seg('grouped', '▤', 'Grouped')}${seg('table', '☰', 'Table')}${seg('board', '▦', 'Board')}</div>
+    <button data-export class="btn btn-ghost btn-sm" title="Download tasks as CSV">⬇ CSV</button>
+  </div>`;
+}
+
+routes.mytasks = () => {
+  setCrumbs([{ label: 'Overview', hash: '#/home' }, { label: 'My tasks' }]);
+  const me = PEOPLE[0];
+  const allMine = TASKS.filter(t => t.assignee === 0);
+  const mine = visibleTasks().filter(t => t.assignee === 0); // search + status pills + column filters/sorts
+  const done = allMine.filter(t => t.progress === 'Completed').length;
+  const pct = allMine.length ? Math.round(done / allMine.length * 100) : 0;
+  const dueSoon = allMine.filter(t => {
+    if (t.progress === 'Completed') return false;
+    const d = metaFor(t).deadline.match(/^(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d+)/i);
+    if (!d) return false;
+    const months = ['january','february','march','april','may','june','july','august','september','october','november','december'];
+    const dt = new Date(2026, months.indexOf(d[1].toLowerCase()), +d[2]);
+    return dt >= new Date() && dt - Date.now() < 14 * 864e5;
+  }).length;
+  const critOpen = allMine.filter(t => t.urgency === 'Critical' && t.progress !== 'Completed').length;
+
+  /* hero band */
+  const initials = me.initials;
+  const greeting = (() => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'; })();
+  const hero = `
+    <header class="mt-hero">
+      <div class="avatar avatar-lg" style="--a:${me.color}">${initials}</div>
+      <div class="mt-hero-txt">
+        <h1>${greeting}, ${esc(me.name.split(' ')[0])} 👋</h1>
+        <p>${allMine.length ? `${critOpen ? `<strong>${critOpen} critical task${critOpen > 1 ? 's' : ''}</strong> need attention · ` : ''}${dueSoon ? `${dueSoon} due this week · ` : ''}you're <strong>${pct}% complete</strong>` : 'Nothing on your plate right now.'}</p>
+      </div>
+      <div class="mt-ring" style="--p:${pct}" role="img" aria-label="${pct}% of your tasks completed">
+        <span class="mt-ring-num">${pct}%</span>
+      </div>
+    </header>`;
+
+  /* status filter pills */
+  const pills = `
+    <div class="mt-pills" role="group" aria-label="Filter by status">
+      <button class="mt-pill${!myTaskFilter ? ' active' : ''}" data-status="">All<span class="mt-pill-n">${allMine.length}</span></button>
+      ${STATUS_ORDER.map(st => {
+        const n = allMine.filter(t => t.progress === st).length;
+        return `<button class="mt-pill${st === myTaskFilter ? ' active' : ''}" data-status="${st}">
+          <span class="status-dot ${PROGRESS[st].dot}"></span>${st}<span class="mt-pill-n">${n}</span></button>`;
+      }).join('')}
     </div>`;
+
+  let body;
+  if (!allMine.length) {
+    body = `<div class="empty-state">No tasks assigned to you yet.<br><button class="btn btn-primary btn-sm" style="margin-top:10px" data-goto="#/project/q3-plan">Browse the Q3 Plan board</button></div>`;
+  } else {
+    const q = searchTerm.trim().toLowerCase();
+    const noneShown = !mine.length;
+    let content;
+    if (noneShown) {
+      content = `<div class="empty-state">No matching tasks${q ? ` for “${esc(searchTerm)}”` : ''}.<br>
+        <button id="clear-mytasks-filter" class="btn btn-ghost btn-sm" style="margin-top:8px">Clear search &amp; filters</button></div>`;
+    } else if (mtView === 'table') {
+      content = taskTableHtml(mine);
+    } else if (mtView === 'board') {
+      content = kanbanColsHtml(mine);
+    } else { /* grouped */
+      content = STATUS_ORDER.map(st => {
+        const list = mine.filter(t => t.progress === st);
+        if (!list.length) return '';
+        return `
+        <section class="mtask-group">
+          <h2 class="mtask-group-title"><span class="status-dot ${PROGRESS[st].dot}"></span>${st}<span class="group-count">${list.length}</span></h2>
+          ${taskTableHtml(list)}
+        </section>`;
+      }).join('');
+    }
+    body = `${pills}${mtToolbarHtml()}<div class="mt-content">${content}</div>`;
+  }
+
+  return `<section class="page-pad mtask-page">${hero}${body}</section>`;
 };
+
+let myTaskFilter = '';
 
 routes.projects = () => {
   setCrumbs([{ label: 'Workspace' }, { label: 'Projects' }]);
@@ -829,7 +1025,7 @@ routes.channel = (param) => {
 };
 
 routes.settings = () => {
-  setCrumbs([{ label: 'C Atlas, Inc' }, { label: 'Settings' }]);
+  setCrumbs([{ label: 'TaskHive' }, { label: 'Settings' }]);
   return `
     <section class="page-pad narrow">
       <div class="page-head"><h1>Settings</h1></div>
@@ -912,8 +1108,35 @@ function showNewFeatureModal() {
 /* ============================ EVENT DELEGATION ============================ */
 
 document.body.addEventListener('click', (e) => {
-  const el = e.target.closest('[id],[data-goto],[data-calday],[data-project],[data-inbox],[data-attachment],[data-person],[data-plan]');
+  /* ---- column header menu: handle first, before generic closest() ---- */
+  const menuBtn = e.target.closest('.col-menu [data-menuact]');
+  if (menuBtn) {
+    const [kind, a, b] = menuBtn.dataset.menuact.split(':');
+    closeColMenus();
+    if (kind === 'sort') sortState = { key: a, dir: b === 'asc' ? 1 : -1 };
+    else if (kind === 'setf') filterState[a] = decodeURIComponent(b);
+    else if (kind === 'clearf') filterState[a] = '';
+    refreshViews();
+    return;
+  }
+  const thBtn = e.target.closest('.th-btn');
+  if (thBtn) { openColMenu(thBtn); return; }
+  if (document.querySelector('.col-menu')) closeColMenus(); // click outside → dismiss
+
+  const el = e.target.closest('[id],[data-goto],[data-calday],[data-project],[data-inbox],[data-attachment],[data-person],[data-plan],[data-view],[data-export],[data-status],[data-mtview],[data-mtchip]');
   if (!el) return;
+
+  // My Tasks status pills (must run before the generic closest() id lookup)
+  const pill = e.target.closest('.mt-pill');
+  if (pill) {
+    const st = pill.dataset.status;
+    myTaskFilter = (!st || st === myTaskFilter) ? '' : st; // "All" resets; clicking active pill toggles off
+    render();
+    return;
+  }
+
+  // board table/kanban view toggle
+  if (el.dataset.view !== undefined && el.classList.contains('vt-btn')) { setKanban(el.dataset.view === 'kanban'); return; }
 
   // simple navigation shortcuts
   const goto = el.getAttribute('data-goto');
@@ -972,7 +1195,7 @@ document.body.addEventListener('click', (e) => {
     const p = PEOPLE[+el.dataset.person];
     return openModal(p.name, `
       <div class="profile-head"><span class="avatar" style="--a:${p.color};width:48px;height:48px;font-size:16px">${p.initials}</span>
-      <div><h3>${p.name}</h3><p>Engineering · C Atlas, Inc</p></div></div>
+      <div><h3>${p.name}</h3><p>Engineering · TaskHive</p></div></div>
       <p class="modal-lead">Assigned tasks:</p>
       <ul class="mini-tasks">${TASKS.filter(t => t.assignee === +el.dataset.person).map(t =>
         `<li><span class="status-dot ${PROGRESS[t.progress].dot}"></span><a href="#/task/${t.idx}">${esc(t.name)}</a></li>`).join('')}</ul>`);
@@ -1028,18 +1251,24 @@ document.body.addEventListener('click', (e) => {
   /* ---- rename from Properties panel ---- */
   if (el.id === 'edit-task-btn') { startRename(+el.dataset.idx); return; }
 
-  /* ---- column sorting ---- */
-  if (el.classList.contains('th-sort')) {
-    const key = el.dataset.sort;
-    if (sortState.key === key) sortState.dir *= -1;
-    else sortState = { key, dir: 1 };
-    renderBoardBody();
-    return;
-  }
-
   /* ---- clear filters / export csv / bulk actions / undo ---- */
   if (el.id === 'clear-filters') { filterState = { progress: '', urgency: '', assignee: '' }; renderBoardBody(); return; }
-  if (el.id === 'export-csv') { exportCsv(visibleTasks()); return toast('⬇ tasks.csv downloaded'); }
+  if (el.id === 'clear-mytasks-filter') { myTaskFilter = ''; searchTerm = ''; sortState = { key: null, dir: 1 }; filterState = { progress: '', urgency: '', assignee: '' }; const gs = $('#global-search'); if (gs) gs.value = ''; render(); return; }
+  if (el.classList.contains('mt-pill')) {
+    const st = el.dataset.status;
+    myTaskFilter = (!st || st === myTaskFilter) ? '' : st; // "All" resets; clicking active pill toggles off
+    render();
+    return;
+  }
+  if (el.dataset.mtview) { setMtView(el.dataset.mtview); return; }
+  if (el.dataset.mtchip) {
+    const k = el.dataset.mtchip;
+    if (k === 'status') myTaskFilter = '';
+    else filterState[k] = '';
+    render();
+    return;
+  }
+  if (el.hasAttribute('data-export')) { exportCsv(visibleTasks()); return toast('⬇ tasks.csv downloaded'); }
   if (el.id === 'bulk-delete') { bulkDelete(); return; }
   if (el.id === 'undo-btn') { undoLast(); return; }
 
@@ -1054,10 +1283,7 @@ document.body.addEventListener('click', (e) => {
     if (!host) return;
     if (i === 2) { kanbanMode = true; renderKanban(); return; }
     kanbanMode = false;
-    if (currentRoute === 'mytasks') {
-      const mine = TASKS.filter(t => t.assignee === 0);
-      host.innerHTML = taskTableHtml(i === 0 ? mine.filter(t => t.progress === 'Ongoing') : mine);
-    } else {
+    if (currentRoute === 'mytasks') { render(); return; } else {
       host.innerHTML = i === 0 ? overviewHtml() : (toolbarHtml() + (() => { const rows = visibleTasks(); return rows.length ? taskTableHtml(rows) : '<div class="empty-state">No tasks match your search or filters.</div>'; })());
     }
   }
@@ -1066,9 +1292,9 @@ document.body.addEventListener('click', (e) => {
 /* ---- bulk action bar (appears when rows are checked) ---- */
 document.body.addEventListener('change', (e) => {
   if (e.target.classList.contains('row-check')) updateBulkBar();
-  if (e.target.id === 'flt-progress') { filterState.progress = e.target.value; renderBoardBody(); }
-  if (e.target.id === 'flt-urgency')  { filterState.urgency = e.target.value; renderBoardBody(); }
-  if (e.target.id === 'flt-assignee') { filterState.assignee = e.target.value; renderBoardBody(); }
+  if (e.target.id === 'flt-progress') { filterState.progress = e.target.value; refreshViews(); }
+  if (e.target.id === 'flt-urgency')  { filterState.urgency = e.target.value; refreshViews(); }
+  if (e.target.id === 'flt-assignee') { filterState.assignee = e.target.value; refreshViews(); }
   if (e.target.id === 'prop-status') {
     const idx = +e.target.dataset.idx;
     const t = TASKS.find(x => x.idx === idx);
@@ -1165,6 +1391,13 @@ function filteredTasks() {
   const base = (currentRoute === 'project' || currentRoute === 'task') ? scopedTasks() : TASKS;
   return base.filter(t => !q || t.name.toLowerCase().includes(q) || t.id.toLowerCase().includes(q));
 }
+
+document.body.addEventListener('input', (e) => {
+  if (e.target.id === 'mt-search') {
+    searchTerm = e.target.value;
+    render(); // full re-render keeps pills, chips, counts and all grouped sections in sync
+  }
+});
 
 $('#global-search').addEventListener('input', (e) => {
   searchTerm = e.target.value;
