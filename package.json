@@ -1,4 +1,8 @@
 {
+  "scripts": {
+    "start": "node server.js",
+    "test:api": "bash test_api.sh"
+  },
   "dependencies": {
     "@playwright/test": "^1.64.0",
     "puppeteer-core": "^24.43.1"

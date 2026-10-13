@@ -15,73 +15,21 @@ const PROGRESS = {
 
 const URGENCY = { Critical: 'pill-critical', Moderate: 'pill-moderate', Minor: 'pill-minor' };
 
-const PEOPLE = [
-  { name: 'Priya Sharma', initials: 'PS', color: '#43b3ff' },
-  { name: 'David Lee',    initials: 'DL', color: '#ffa575' },
-  { name: 'Maya Chen',    initials: 'MC', color: '#7b60ff' },
-  { name: 'Alex Kim',     initials: 'AK', color: '#3eb957' },
-  { name: 'Sara Noor',    initials: 'SN', color: '#db672d' },
-];
+/* ---- in-memory state, replaced by GET /api/bootstrap at boot ---- */
+let PEOPLE = [];
+let TASKS = [];
+let PROJECTS = [];
+let INBOX_ITEMS = [];
+let DISCUSSIONS = {};          // taskId -> [{ who, initials, color, text, at }]
 
-// Task list exactly as in the design (15 tasks)
-let TASKS = [
-  { id: 'TSK-8',  name: 'Improve Navigation & Menu Organization', progress: 'Ongoing',   urgency: 'Moderate', assignee: 2, comments: 0 },
-  { id: 'TSK-20', name: 'Enhance Search Functionality',           progress: 'Completed', urgency: 'Critical', assignee: 1, comments: 6 },
-  { id: 'TSK-22', name: 'Dark Mode Implementation',               progress: 'In review', urgency: 'Minor',    assignee: 0, comments: 0 },
-  { id: 'TSK-6',  name: 'Optimize Mobile Responsiveness',         progress: 'Ongoing',   urgency: 'Moderate', assignee: 3, comments: 0 },
-  { id: 'TSK-6',  name: 'Redesign Checkout Flow',                 progress: 'Ongoing',   urgency: 'Critical', assignee: 4, comments: 0 },
-  { id: 'TSK-10', name: 'Speed Optimization for Home Page',       progress: 'Ongoing',   urgency: 'Critical', assignee: 1, comments: 0 },
-  { id: 'TSK-40', name: 'Reduce Load Time for Large Data Sets',   progress: 'Pending',   urgency: 'Minor',    assignee: 2, comments: 0 },
-  { id: 'TSK-12', name: 'Optimize Image Compression for Faster Loading', progress: 'In review', urgency: 'Moderate', assignee: 0, comments: 0 },
-  { id: 'TSK-18', name: 'Introduce AI-powered Task Prioritization', progress: 'Completed', urgency: 'Moderate', assignee: 3, comments: 4 },
-  { id: 'TSK-12', name: 'Multi-language Support Implementation',  progress: 'Completed', urgency: 'Critical', assignee: 4, comments: 1 },
-  { id: 'TSK-12', name: 'Missing Tooltip on Product Images',      progress: 'Completed', urgency: 'Moderate', assignee: 1, comments: 0 },
-  { id: 'TSK-22', name: 'Integrate Third-party Calendar Sync',    progress: 'Completed', urgency: 'Critical', assignee: 2, comments: 4 },
-  { id: 'TSK-14', name: 'Enhance User Authentication with 2FA',   progress: 'Pending',   urgency: 'Minor',    assignee: 0, comments: 0 },
-  { id: 'TSK-27', name: 'GDPR Compliance Updates',                progress: 'Pending',   urgency: 'Minor',    assignee: 3, comments: 0 },
-  { id: 'TSK-18', name: 'Data Encryption for Sensitive Information', progress: 'In review', urgency: 'Minor', assignee: 4, comments: 3 },
-].map((t, i) => ({ ...t, idx: i, project: 'q3-plan' }));
+const ME = 'p1';               // current user (Priya Sharma)
+const meName  = () => (PEOPLE.find(p => p.id === ME) || { name: 'You' }).name;
+const meInitials = () => (PEOPLE.find(p => p.id === ME) || { initials: 'YO' }).initials;
+const meColor = () => (PEOPLE.find(p => p.id === ME) || { color: '#43b3ff' }).color;
+const personById = (id) => PEOPLE.find(p => p.id === id) || PEOPLE[0] || { name: 'Unknown', initials: '?', color: '#888' };
 
-/* NOTE: some task IDs repeat in the original design mockup; give every task a
-   unique internal id so deep links, saved items and new tasks never collide. */
-let nextTaskNum = 100;
-
-const PROJECTS = [
-  { name: 'Q3 Plan',            desc: 'Product roadmap & delivery plan for Q3', members: 5, open: 15 },
-  { name: 'Website Redesign',   desc: 'New marketing site and design system',   members: 4, open: 12 },
-  { name: 'Mobile App v2.0',    desc: 'Feature parity with web + offline mode', members: 6, open: 23 },
-  { name: 'API Documentation',  desc: 'Public developer docs refresh',          members: 3, open: 8 },
-  { name: 'Customer Portal',    desc: 'Self-service dashboard for clients',     members: 5, open: 17 },
-  { name: 'Internal Tools',     desc: 'Admin utilities and ops automation',     members: 2, open: 6 },
-];
-
-/* Seed a few tasks into other projects so non-Q3 boards aren't dead ends */
-PROJECTS.filter(p => p.name !== 'Q3 Plan').forEach((p, pi) => {
-  const owners = [pi % PEOPLE.length, (pi + 2) % PEOPLE.length];
-  const names = [
-    `Kick-off & scope “${p.name}”`,
-    `Define success metrics for ${p.name}`,
-  ];
-  names.forEach((n, ni) => TASKS.push({
-    id: 'TSK-' + (50 + pi * 2 + ni), name: n,
-    progress: ni === 0 ? 'Ongoing' : 'Pending',
-    urgency: ['Moderate', 'Minor', 'Critical'][pi % 3],
-    assignee: owners[ni], comments: 0,
-    idx: 500 + pi * 2 + ni, project: slugifyStatic(p.name),
-  }));
-});
-
-function slugifyStatic(s) { return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''); }
-
-const INBOX_ITEMS = [
-  { who: 'David Lee',  initials: 'DL', color: '#ffa575', text: 'mentioned you in “Enhance Search Functionality”', time: '10 min ago', task: 1, unread: true },
-  { who: 'Priya Sharma', initials: 'PS', color: '#43b3ff', text: 'assigned you “Dark Mode Implementation”',       time: '32 min ago', task: 2, unread: true },
-  { who: 'Maya Chen',  initials: 'MC', color: '#7b60ff', text: 'completed “Introduce AI-powered Task Prioritization”', time: '1 h ago', task: 8, unread: true },
-  { who: 'Alex Kim',   initials: 'AK', color: '#3eb957', text: 'commented on “Optimize Mobile Responsiveness”',   time: '3 h ago', task: 3, unread: false },
-  { who: 'Sara Noor',  initials: 'SN', color: '#db672d', text: 'requested review of “Data Encryption for Sensitive Information”', time: 'Yesterday', task: 14, unread: false },
-  { who: 'David Lee',  initials: 'DL', color: '#ffa575', text: 'changed urgency of “Redesign Checkout Flow” to Critical', time: 'Yesterday', task: 4, unread: false },
-  { who: 'Priya Sharma', initials: 'PS', color: '#43b3ff', text: 'shared the project “Q3 Plan” with you',          time: '2 days ago', task: null, unread: false },
-];
+// Task list exactly as in the design (15 tasks) — ids unique server-side;
+// the real data now comes from the backend via GET /api/bootstrap.
 
 const CHANNELS = {
   engineering:    { topic: 'Builds, incidents and API chatter for the platform team.' },
@@ -93,33 +41,8 @@ const CHANNELS = {
   marketing:      { topic: 'Campaigns, launches and growth experiments.' },
 };
 
-const CHANNEL_MESSAGES = {
-  engineering: [
-    { who: 'Alex Kim', initials: 'AK', color: '#3eb957', text: 'Deployed build #482 to staging — search latency down 30%.', time: '09:12' },
-    { who: 'Maya Chen', initials: 'MC', color: '#7b60ff', text: 'Nice! Any regressions on the nav menu task (TSK-8)?', time: '09:15' },
-    { who: 'Alex Kim', initials: 'AK', color: '#3eb957', text: 'None so far. QA signed off on mobile responsiveness too.', time: '09:18' },
-  ],
-  docs: [
-    { who: 'Priya Sharma', initials: 'PS', color: '#43b3ff', text: 'PRD.docx updated with the new accessibility section.', time: '11:02' },
-    { who: 'David Lee', initials: 'DL', color: '#ffa575', text: 'I’ll add the API examples before Friday.', time: '11:20' },
-  ],
-  teams: [
-    { who: 'Sara Noor', initials: 'SN', color: '#db672d', text: 'Reminder: retro at 4 pm in the big room.', time: '10:00' },
-  ],
-  initiatives: [
-    { who: 'David Lee', initials: 'DL', color: '#ffa575', text: 'Q3 initiative tracker is live — see the Q3 Plan project.', time: '08:45' },
-  ],
-  'active-sprint': [
-    { who: 'Maya Chen', initials: 'MC', color: '#7b60ff', text: 'Standup notes: TSK-20 done, TSK-22 in review.', time: '09:30' },
-    { who: 'Alex Kim', initials: 'AK', color: '#3eb957', text: 'Blocker: need designs for the checkout flow revamp.', time: '09:32' },
-  ],
-  design: [
-    { who: 'Priya Sharma', initials: 'PS', color: '#43b3ff', text: 'Dark mode tokens are in Figma — feedback welcome.', time: '13:10' },
-  ],
-  marketing: [
-    { who: 'Sara Noor', initials: 'SN', color: '#db672d', text: 'Launch blog draft is ready for engineering review.', time: '15:40' },
-  ],
-};
+/* Channel messages come from the backend (GET /api/channels/:id) */
+let CHANNEL_MESSAGES = {};
 
 /* Per-task metadata used by the Properties panel */
 const TASK_META = {
@@ -130,12 +53,10 @@ const TASK_META = {
   deadlines: ['May 15, 2025', 'June 1, 2025', 'June 20, 2025', 'July 10, 2025'],
 };
 
-const DISCUSSIONS = {
-  default: [
-    { who: 'David Lee', initials: 'DL', color: '#ffa575', text: 'Have you considered AI-driven task prioritization?' },
-    { who: 'Priya Sharma', initials: 'PS', color: '#43b3ff', text: "Don't forget to add accessibility features in the design phase." },
-  ],
-};
+const DISCUSSIONS_DEFAULT = [
+  { who: 'David Lee', initials: 'DL', color: '#ffa575', text: 'Have you considered AI-driven task prioritization?' },
+  { who: 'Priya Sharma', initials: 'PS', color: '#43b3ff', text: "Don't forget to add accessibility features in the design phase." },
+];
 
 const ATTACHMENTS = [
   { cls: 'xls', label: 'XLS', name: 'Client_Proposal.xls', sub: 'Today · 4 MB' },
@@ -143,14 +64,58 @@ const ATTACHMENTS = [
   { cls: 'gdoc', label: 'G', name: 'Google Docs', sub: 'Linked document' },
 ];
 
+/* ============================ BACKEND API CLIENT ============================ */
+
+const API_BASE = '/api';
+
+async function api(method, path, body) {
+  const res = await fetch(API_BASE + path, {
+    method,
+    headers: body !== undefined ? { 'Content-Type': 'application/json' } : {},
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    let msg = `${res.status} ${res.statusText}`;
+    try { msg = (await res.json()).error || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+/* Fire-and-forget mutation with optimistic UI + rollback on failure */
+function mutate(path, method, body, onSuccess, label) {
+  return api(method, path, body).catch(err => {
+    console.error(`${method} ${path} failed:`, err);
+    toast(`⚠ ${label || 'Server update failed'} — retrying locally only`);
+    if (method === 'PATCH') {           // best-effort single retry for edits
+      setTimeout(() => api(method, path, body).catch(() => {}), 1200);
+    }
+  });
+}
+
+const patchTask    = (task, body, label) => mutate(`/tasks/${encodeURIComponent(task.id)}`, 'PATCH', body, null, label || 'Save failed');
+const deleteTaskApi = (task) => mutate(`/tasks/${encodeURIComponent(task.id)}`, 'DELETE', undefined, null, 'Delete failed');
+const patchPrefs   = () => mutate('/prefs', 'PATCH', { savedIds, readFlags }, null, 'Preference sync failed');
+const patchInboxRead = (id) => mutate(`/inbox/${encodeURIComponent(id)}`, 'PATCH', { unread: false }, null, 'Read sync failed');
+const patchInboxReadAll = () => mutate('/inbox/read-all', 'PATCH', {}, null, 'Read sync failed');
+
+function timeAgo(iso) {
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  if (s < 172800) return 'Yesterday';
+  return `${Math.floor(s / 86400)} days ago`;
+}
+
 /* ============================ HELPERS ============================ */
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const pageEl = $('#page');
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-let savedIds = [];
-let readFlags = {};
+let savedIds = [];     // task ids (strings) — canonical copy lives on the server (/api/prefs)
+let readFlags = {};    // inbox item id -> true (server-persisted; localStorage is a fast cache)
 let sortState = { key: null, dir: 1 };
 const undoStack = [];
 const LS_KEY = 'issueTracker.v1';
@@ -160,12 +125,12 @@ try {
   savedIds = Array.isArray(s.saved) ? s.saved : [];
   readFlags = s.read || {};
 } catch (_) {}
-INBOX_ITEMS.forEach((it, i) => { if (readFlags[i]) it.unread = false; });
 
 function persist() {
   try {
     localStorage.setItem(LS_KEY, JSON.stringify({ saved: savedIds, read: readFlags }));
-  } catch (_) { /* private mode / storage disabled — demo still works in-memory */ }
+  } catch (_) { /* private mode / storage disabled — server copy still persists */ }
+  patchPrefs(); // sync to backend (fire-and-forget, retried on failure)
 }
 
 function toast(msg) {
@@ -203,7 +168,7 @@ function pushHistory(label) {
 
 /* ============================ FILTERS / SORT / VISIBLE SET ============================ */
 
-const STATUS_ORDER = ['Ongoing', 'In review', 'Completed', 'Pending'];
+const STATUS_ORDER = ['Ongoing', 'In review', 'Completed', 'Pending', 'On hold'];
 const URGENCY_ORDER = { Critical: 0, Moderate: 1, Minor: 2 };
 
 let filterState = { progress: '', urgency: '', assignee: '' };
@@ -270,11 +235,16 @@ function exportCsv(tasks) {
   setTimeout(() => URL.revokeObjectURL(a.href), 500);
 }
 
-/* ============================ MUTATIONS (edit / status / delete / undo) ============================ */
+/* ============================ MUTATIONS (edit / status / delete / undo) ============================
+   All mutations are optimistic: update in-memory state + UI immediately, then sync to the
+   backend via PATCH/DELETE /api/tasks/:id. On failure mutate() surfaces a warning toast and
+   retries; Undo reverses both the local change and the server copy.                       */
+
+const byIdx = (idx) => TASKS.find(x => x.idx === idx);
 
 function updateTaskRow(idx) {
   const tr = document.querySelector(`.task-table tbody tr[data-idx="${idx}"]`);
-  const t = TASKS.find(x => x.idx === idx);
+  const t = byIdx(idx);
   if (!tr || !t) return;
   const fresh = document.createElement('tr');
   fresh.innerHTML = taskRowHtml(t);
@@ -285,36 +255,38 @@ function updateTaskRow(idx) {
 
 function startRename(idx) {
   const cell = document.querySelector(`.task-table tbody tr[data-idx="${idx}"] .feature-name`);
-  const t = TASKS.find(x => x.idx === idx);
+  const t = byIdx(idx);
   if (!cell || !t || cell.querySelector('input')) return;
   cell.innerHTML = `<input class="rename-input" type="text" value="${esc(t.name)}" aria-label="Rename task" />`;
   const inp = cell.querySelector('input');
   inp.focus(); inp.select();
-  inp.addEventListener('blur', () => commit());
-  inp.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); commit(); }
-    if (e.key === 'Escape') render();
-  });
   let done = false;
   function commit() {
     if (done) return; done = true;
     const v = inp.value.trim();
     if (v && v !== t.name) {
       const old = t.name; t.name = v;
+      patchTask(t, { name: v }, 'Rename not saved');
       pushHistory(`Renamed “${old}” → “${v}”`);
-      undoStack.push({ label: `Rename of “${v}”`, run: () => { t.name = old; render(); } });
+      undoStack.push({ label: `Rename of “${v}”`, run: () => { t.name = old; patchTask(t, { name: old }); render(); } });
       render();
       showUndoToast(`✏ Renamed “${v}”`);
     } else render();
   }
+  inp.addEventListener('blur', () => commit());
+  inp.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); commit(); }
+    if (e.key === 'Escape') { done = true; render(); }
+  });
 }
 
 function cycleStatus(idx) {
-  const t = TASKS.find(x => x.idx === idx); if (!t) return;
+  const t = byIdx(idx); if (!t) return;
   const old = t.progress;
   t.progress = STATUS_ORDER[(STATUS_ORDER.indexOf(old) + 1) % STATUS_ORDER.length];
+  patchTask(t, { progress: t.progress }, 'Status not saved');
   pushHistory(`“${t.name}”: ${old} → ${t.progress}`);
-  undoStack.push({ label: `Status change of “${t.name}”`, run: () => { t.progress = old; render(); } });
+  undoStack.push({ label: `Status change of “${t.name}”`, run: () => { t.progress = old; patchTask(t, { progress: old }); render(); } });
   if ($('#board-body')) renderBoardBody(); else render(); // board pages vs mytasks/home/saved tables
   showUndoToast(`“${t.name}”: ${old} → ${t.progress}`);
 }
@@ -322,29 +294,58 @@ function cycleStatus(idx) {
 function deleteTask(idx) {
   const pos = TASKS.findIndex(x => x.idx === idx); if (pos < 0) return;
   const removed = TASKS[pos];
+  deleteTaskApi(removed);
+  savedIds = savedIds.filter(id => id !== removed.id); persist();
   pushHistory(`Deleted “${removed.name}”`);
-  undoStack.push({ label: `Deleted “${removed.name}”`, run: () => TASKS.splice(pos, 0, removed) });
+  undoStack.push({
+    label: `Deleted “${removed.name}”`,
+    run: async () => {
+      TASKS.splice(pos, 0, removed);
+      try {                                  // re-create on the server; keep the client row in sync
+        const created = await api('POST', '/tasks', {
+          name: removed.name, progress: removed.progress, urgency: removed.urgency,
+          assignee: removed.assignee, project: removed.project, comments: removed.comments,
+        });
+        Object.assign(removed, { id: created.id, idx: created.idx });
+      } catch (_) { /* stays local-only until next full reload */ }
+    },
+  });
   TASKS.splice(pos, 1);
   render();
   showUndoToast(`🗑 Deleted “${removed.name}”`);
 }
-
 function bulkDelete() {
   const boxes = [...document.querySelectorAll('.row-check:checked')];
   if (!boxes.length) return;
   const idxs = new Set(boxes.map(b => +b.dataset.idx));
   const removed = TASKS.filter(t => idxs.has(t.idx));
+  removed.forEach(deleteTaskApi);
+  savedIds = savedIds.filter(id => !removed.some(t => t.id === id)); persist();
   TASKS = TASKS.filter(t => !idxs.has(t.idx));
   pushHistory(`Deleted ${removed.length} tasks`);
-  undoStack.push({ label: `Deleted ${removed.length} tasks`, run: () => removed.forEach(t => TASKS.push(t)) });
+  undoStack.push({
+    label: `Deleted ${removed.length} tasks`,
+    run: async () => {
+      for (const t of removed) {
+        TASKS.push(t);
+        try {
+          const created = await api('POST', '/tasks', {
+            name: t.name, progress: t.progress, urgency: t.urgency,
+            assignee: t.assignee, project: t.project, comments: t.comments,
+          });
+          Object.assign(t, { id: created.id, idx: created.idx });
+        } catch (_) {}
+      }
+    },
+  });
   render();
   showUndoToast(`🗑 Deleted ${removed.length} tasks`);
 }
 
-function undoLast() {
+async function undoLast() {
   const op = undoStack.pop();
   if (!op) return toast('Nothing to undo');
-  op.run(); render(); toast(`↩ Undone: ${op.label}`);
+  await op.run(); render(); toast(`↩ Undone: ${op.label}`);
 }
 
 function showUndoToast(msg) {
@@ -1123,7 +1124,7 @@ document.body.addEventListener('click', (e) => {
   if (thBtn) { openColMenu(thBtn); return; }
   if (document.querySelector('.col-menu')) closeColMenus(); // click outside → dismiss
 
-  const el = e.target.closest('[id],[data-goto],[data-calday],[data-project],[data-inbox],[data-attachment],[data-person],[data-plan],[data-view],[data-export],[data-status],[data-mtview],[data-mtchip]');
+  const el = e.target.closest('[id],[data-goto],[data-calday],[data-project],[data-inbox],[data-attachment],[data-person],[data-plan],[data-view],[data-export],[data-status],[data-mtview],[data-mtchip],[data-del]');
   if (!el) return;
 
   // My Tasks status pills (must run before the generic closest() id lookup)
