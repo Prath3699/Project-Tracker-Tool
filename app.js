@@ -22,7 +22,7 @@ let PROJECTS = [];
 let INBOX_ITEMS = [];
 let DISCUSSIONS = {};          // taskId -> [{ who, initials, color, text, at }]
 
-const ME = 'p1';               // current user (Priya Sharma)
+const ME = 'p1';               // current user (Parth Sharma)
 const meName  = () => (PEOPLE.find(p => p.id === ME) || { name: 'You' }).name;
 const meInitials = () => (PEOPLE.find(p => p.id === ME) || { initials: 'YO' }).initials;
 const meColor = () => (PEOPLE.find(p => p.id === ME) || { color: '#43b3ff' }).color;
@@ -1046,7 +1046,7 @@ routes.settings = () => {
       <div class="page-head"><h1>Settings</h1></div>
       <div class="settings-group">
         <h3>Profile</h3>
-        <label>Display name<input id="set-name" type="text" value="Priya Sharma" /></label>
+        <label>Display name<input id="set-name" type="text" value="Parth Sharma" /></label>
         <label>Email<input type="email" value="priya@catlas.inc" /></label>
       </div>
       <div class="settings-group">

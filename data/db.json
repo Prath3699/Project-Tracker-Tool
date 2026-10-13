@@ -1,13 +1,13 @@
 {
   "meta": {
-    "nextTaskNum": 106,
-    "nextIdx": 1006
+    "nextTaskNum": 111,
+    "nextIdx": 1011
   },
   "people": [
     {
       "id": "p1",
-      "name": "Priya Sharma",
-      "initials": "PS",
+      "name": "Parth Sharma",
+      "initials": "PT",
       "color": "#43b3ff"
     },
     {
@@ -103,15 +103,26 @@
   ],
   "tasks": [
     {
-      "id": "TSK-105",
+      "id": "TSK-110",
+      "name": "E2E API Task",
+      "progress": "Completed",
+      "urgency": "Critical",
+      "assignee": "p2",
+      "project": "q3-plan",
+      "comments": 1,
+      "idx": 1010,
+      "createdAt": "2026-10-13T18:07:39.490Z"
+    },
+    {
+      "id": "TSK-107",
       "name": "Enhance Search Functionality",
-      "progress": "Ongoing",
+      "progress": "Completed",
       "urgency": "Critical",
       "assignee": "p2",
       "project": "q3-plan",
       "comments": 6,
-      "idx": 1005,
-      "createdAt": "2026-10-13T17:55:41.750Z"
+      "idx": 1007,
+      "createdAt": "2026-10-13T18:06:40.207Z"
     },
     {
       "id": "TSK-8",
@@ -436,14 +447,14 @@
     },
     {
       "id": "inbox-2",
-      "who": "Priya Sharma",
-      "initials": "PS",
+      "who": "Parth Sharma",
+      "initials": "PT",
       "color": "#43b3ff",
       "text": "assigned you “Dark Mode Implementation”",
       "ago": 1920000,
       "task": "TSK-22",
       "unread": true,
-      "at": "2026-10-13T17:21:45.099Z"
+      "at": 1791912787589
     },
     {
       "id": "inbox-3",
@@ -491,21 +502,21 @@
     },
     {
       "id": "inbox-7",
-      "who": "Priya Sharma",
-      "initials": "PS",
+      "who": "Parth Sharma",
+      "initials": "PT",
       "color": "#43b3ff",
       "text": "shared the project “Q3 Plan” with you",
       "ago": 172800000,
       "task": null,
       "unread": false,
-      "at": "2026-10-11T17:53:45.099Z"
+      "at": 1791912787589
     }
   ],
   "discussions": {
     "TSK-100": [
       {
-        "who": "Priya Sharma",
-        "initials": "PS",
+        "who": "Parth Sharma",
+        "initials": "PT",
         "color": "#43b3ff",
         "text": "e2e comment",
         "at": "2026-10-13T17:54:06.971Z"
@@ -513,11 +524,20 @@
     ],
     "TSK-101": [
       {
-        "who": "Priya Sharma",
-        "initials": "PS",
+        "who": "Parth Sharma",
+        "initials": "PT",
         "color": "#43b3ff",
         "text": "e2e comment",
         "at": "2026-10-13T17:54:42.636Z"
+      }
+    ],
+    "TSK-108": [
+      {
+        "who": "Parth Sharma",
+        "initials": "PT",
+        "color": "#43b3ff",
+        "text": "e2e comment",
+        "at": "2026-10-13T18:06:46.563Z"
       }
     ]
   },
@@ -545,18 +565,18 @@
         "time": "09:18"
       },
       {
-        "who": "Priya Sharma",
-        "initials": "PS",
+        "who": "Parth Sharma",
+        "initials": "PT",
         "color": "#43b3ff",
         "text": "e2e chat msg",
-        "time": "17:54"
+        "time": "13:40"
       },
       {
-        "who": "Priya Sharma",
-        "initials": "PS",
+        "who": "Parth Sharma",
+        "initials": "PT",
         "color": "#43b3ff",
         "text": "e2e chat msg",
-        "time": "17:54"
+        "time": "13:40"
       },
       {
         "who": "You",
@@ -564,15 +584,22 @@
         "color": "#43b3ff",
         "text": "hello from backend test",
         "time": "17:55"
+      },
+      {
+        "who": "Parth Sharma",
+        "initials": "PT",
+        "color": "#43b3ff",
+        "text": "e2e chat msg",
+        "time": "18:06"
       }
     ],
     "docs": [
       {
-        "who": "Priya Sharma",
-        "initials": "PS",
+        "who": "Parth Sharma",
+        "initials": "PT",
         "color": "#43b3ff",
         "text": "PRD.docx updated with the new accessibility section.",
-        "time": "11:02"
+        "time": "13:40"
       },
       {
         "who": "David Lee",
@@ -618,11 +645,11 @@
     ],
     "design": [
       {
-        "who": "Priya Sharma",
-        "initials": "PS",
+        "who": "Parth Sharma",
+        "initials": "PT",
         "color": "#43b3ff",
         "text": "Dark mode tokens are in Figma — feedback welcome.",
-        "time": "13:10"
+        "time": "13:40"
       }
     ],
     "marketing": [
