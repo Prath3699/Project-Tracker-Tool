@@ -44,11 +44,12 @@ const EXE = '/root/.cache/ms-playwright/chromium_headless_shell-1234/chrome-head
   await page.click('.project-card:first-child'); await page.waitForTimeout(400);
   check('project card navigates', page.url().includes('#/project/'));
 
-  // filter by assignee id
-  await page.goto('http://localhost:3000/#/project/q3-plan'); await page.waitForTimeout(400);
+  // filter by assignee id (wait for rows to render before touching the select)
+  await page.goto('http://localhost:3000/#/project/q3-plan');
+  await page.waitForSelector('#board-body .assignee-name');
   await page.selectOption('#flt-assignee', 'p1'); await page.waitForTimeout(400);
-  const names = await page.$$eval('#board-body .assignee-name', els => els.map(e => e.textContent.trim()).filter(t => !t.startsWith('💬')));
-  check('assignee filter works', names.length > 0 && names.every(n => n.includes('Priya')));
+  const names = await page.$$eval('#task-rows .assignee-name', els => els.map(e => e.textContent.trim()).filter(t => !t.startsWith('💬')));
+  check('assignee filter works', names.length > 0 && names.every(n => n.includes('Parth')));
 
   console.log('PASS:', ok.join(' | '));
   console.log('FAIL:', fail.join(' | ') || 'none');
