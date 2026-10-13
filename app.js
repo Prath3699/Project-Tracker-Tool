@@ -53,10 +53,9 @@ const TASK_META = {
   deadlines: ['May 15, 2025', 'June 1, 2025', 'June 20, 2025', 'July 10, 2025'],
 };
 
-const DISCUSSIONS_DEFAULT = [
-  { who: 'David Lee', initials: 'DL', color: '#ffa575', text: 'Have you considered AI-driven task prioritization?' },
-  { who: 'Priya Sharma', initials: 'PS', color: '#43b3ff', text: "Don't forget to add accessibility features in the design phase." },
-];
+/* Discussions (Properties-panel comments) come from the backend:
+   GET /api/bootstrap -> discussions map, POST /api/discussions/:taskId to add one. */
+const meComment = () => ({ who: meName(), initials: meInitials(), color: meColor() });
 
 const ATTACHMENTS = [
   { cls: 'xls', label: 'XLS', name: 'Client_Proposal.xls', sub: 'Today · 4 MB' },
@@ -98,6 +97,14 @@ const deleteTaskApi = (task) => mutate(`/tasks/${encodeURIComponent(task.id)}`, 
 const patchPrefs   = () => mutate('/prefs', 'PATCH', { savedIds, readFlags }, null, 'Preference sync failed');
 const patchInboxRead = (id) => mutate(`/inbox/${encodeURIComponent(id)}`, 'PATCH', { unread: false }, null, 'Read sync failed');
 const patchInboxReadAll = () => mutate('/inbox/read-all', 'PATCH', {}, null, 'Read sync failed');
+const postComment = (taskId, text) => api('POST', `/discussions/${encodeURIComponent(taskId)}`, {
+  text, who: meName(), initials: meInitials(), color: meColor(),
+});
+const postChannelMsg = (key, text) => api('POST', `/channels/${encodeURIComponent(key)}`, {
+  text, who: meName(), initials: meInitials(), color: meColor(),
+});
+const saveProject = (name) => api('POST', '/projects', { name });
+const saveBoardOrder = (order) => mutate('/board', 'PATCH', { order }, null, 'Board order not saved');
 
 function timeAgo(iso) {
   const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
@@ -116,6 +123,7 @@ const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt
 
 let savedIds = [];     // task ids (strings) — canonical copy lives on the server (/api/prefs)
 let readFlags = {};    // inbox item id -> true (server-persisted; localStorage is a fast cache)
+let nextTaskNum = 100; // provisional TSK-### counter for optimistic rows; server assigns the real id
 let sortState = { key: null, dir: 1 };
 const undoStack = [];
 const LS_KEY = 'issueTracker.v1';
@@ -187,7 +195,7 @@ function visibleTasks() {
       if (k === 'feature')  r = a.name.localeCompare(b.name);
       if (k === 'progress') r = STATUS_ORDER.indexOf(a.progress) - STATUS_ORDER.indexOf(b.progress);
       if (k === 'urgency')  r = URGENCY_ORDER[a.urgency] - URGENCY_ORDER[b.urgency];
-      if (k === 'assignee') r = PEOPLE[a.assignee].name.localeCompare(PEOPLE[b.assignee].name);
+      if (k === 'assignee') r = personById(a.assignee).name.localeCompare(personById(b.assignee).name);
       return r * dir || a.idx - b.idx;
     });
   }
@@ -205,7 +213,7 @@ function toolbarHtml() {
       <option value="">All urgency</option>${Object.keys(URGENCY).map(k => `<option ${filterState.urgency === k ? 'selected' : ''}>${k}</option>`).join('')}
     </select>
     <select id="flt-assignee" class="tool-select" aria-label="Filter by owner">
-      <option value="">All owners</option>${PEOPLE.map((p, i) => `<option value="${i}" ${String(filterState.assignee) === String(i) ? 'selected' : ''}>${p.name}</option>`).join('')}
+      <option value="">All owners</option>${PEOPLE.map(p => `<option value="${p.id}" ${String(filterState.assignee) === p.id ? 'selected' : ''}>${p.name}</option>`).join('')}
     </select>
     ${active ? '<button id="clear-filters" class="btn btn-ghost btn-sm">Clear filters ✕</button>' : ''}
     <span class="toolbar-spacer"></span>
@@ -226,7 +234,7 @@ function applyFiltersAndSort() {
 function exportCsv(tasks) {
   const head = ['ID', 'Name', 'Progress', 'Urgency', 'Assignee', 'Comments'];
   const lines = [head.join(',')].concat(tasks.map(t =>
-    [t.id, `"${t.name.replace(/"/g, '""')}"`, t.progress, t.urgency, PEOPLE[t.assignee].name, t.comments].join(',')));
+    [t.id, `"${t.name.replace(/"/g, '""')}"`, t.progress, t.urgency, personById(t.assignee).name, t.comments].join(',')));
   const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -366,8 +374,9 @@ window.__app.cycleUrgency = function (idx) {
   const t = TASKS.find(x => x.idx === idx); if (!t) return;
   const old = t.urgency;
   t.urgency = URGENCY_CYCLE[(URGENCY_CYCLE.indexOf(old) + 1) % URGENCY_CYCLE.length];
+  patchTask(t, { urgency: t.urgency }, 'Urgency not saved');
   pushHistory(`“${t.name}”: urgency ${old} → ${t.urgency}`);
-  undoStack.push({ label: `Urgency change of “${t.name}”`, run: () => { t.urgency = old; render(); } });
+  undoStack.push({ label: `Urgency change of “${t.name}”`, run: () => { t.urgency = old; patchTask(t, { urgency: old }); render(); } });
   if ($('#board-body')) renderBoardBody(); else render();
   showUndoToast(`“${t.name}”: ${old} → ${t.urgency}`);
 };
@@ -425,7 +434,7 @@ document.addEventListener('keydown', (e) => {
 /* ============================ SHARED COMPONENTS ============================ */
 
 function taskRowHtml(t) {
-  const p = PEOPLE[t.assignee];
+  const p = personById(t.assignee);
   return `
     <tr data-idx="${t.idx}" tabindex="0">
       <td class="check-cell"><input type="checkbox" class="row-check" data-idx="${t.idx}" aria-label="Select ${esc(t.name)}" /></td>
@@ -476,7 +485,7 @@ function colMenuHtml(key) {
   let filterOpts = [];
   if (key === 'progress') filterOpts = Object.keys(PROGRESS).map(k => ({ val: k, label: k, dot: PROGRESS[k].dot }));
   if (key === 'urgency')  filterOpts = Object.keys(URGENCY).map(k => ({ val: k, label: k, pill: URGENCY[k] }));
-  if (key === 'assignee') filterOpts = PEOPLE.map((p, i) => ({ val: String(i), label: p.name, avatar: p }));
+  if (key === 'assignee') filterOpts = PEOPLE.map(p => ({ val: p.id, label: p.name, avatar: p }));
   const cur = key === 'assignee' ? filterState.assignee : filterState[key];
   const isFiltered = cur !== '' && cur !== undefined;
   return `
@@ -542,9 +551,9 @@ function taskTableHtml(tasks) {
 
 function propertiesPanelHtml(task) {
   const m = metaFor(task);
-  const owner = PEOPLE[task.assignee];
-  const comments = DISCUSSIONS[task.idx] || DISCUSSIONS.default;
-  const isSaved = savedIds.includes(task.idx);
+  const owner = personById(task.assignee);
+  const comments = DISCUSSIONS[task.id] || [];
+  const isSaved = savedIds.includes(task.id);
   return `
   <aside class="properties">
     <div class="props-head"><h2>Properties</h2>
@@ -636,7 +645,7 @@ function kanbanColsHtml(tasks) {
           <div class="kb-head"><span class="status-dot ${PROGRESS[st].dot}"></span><strong>${st}</strong><span class="kb-count">${col.length}</span></div>
           <div class="kb-drop">
             ${col.map(t => {
-              const p = PEOPLE[t.assignee];
+              const p = personById(t.assignee);
               return `<div class="kb-card" draggable="true" data-idx="${t.idx}" tabindex="0">
                 <div class="kb-name">${esc(t.name)}</div>
                 <div class="kb-meta"><span class="tsk-id">${t.id}</span><span class="pill ${URGENCY[t.urgency]}">${t.urgency}</span>
@@ -666,8 +675,10 @@ function wireKanban(host) {
       const st = col.dataset.status;
       if (t && t.progress !== st) {
         const old = t.progress; t.progress = st;
+        patchTask(t, { progress: st }, 'Move not saved');
+        saveBoardOrder(TASKS.map(x => x.id)); // persist column order server-side
         pushHistory(`Moved “${t.name}” → ${st}`);
-        undoStack.push({ label: `Move of “${t.name}”`, run: () => { t.progress = old; render(); } });
+        undoStack.push({ label: `Move of “${t.name}”`, run: () => { t.progress = old; patchTask(t, { progress: old }); render(); } });
         refreshViews();
         showUndoToast(`Moved “${t.name}” → ${st}`);
       }
@@ -740,17 +751,17 @@ routes.home = () => {
   setCrumbs([{ label: 'Overview' }, { label: 'Home' }]);
   const counts = { Ongoing: 0, Completed: 0, 'In review': 0, Pending: 0 };
   TASKS.forEach(t => counts[t.progress]++);
-  const mine = TASKS.filter(t => t.assignee === 0);
+  const mine = TASKS.filter(t => t.assignee === ME);
   return `
     <section class="page-pad">
       <div class="page-head">
-        <h1>Welcome back, Priya 👋</h1>
+        <h1>Welcome back, ${esc(meName().split(' ')[0])} 👋</h1>
         <p>Here's what's happening across your workspace today.</p>
       </div>
       <div class="stat-grid">
         <button class="stat-card" data-goto="#/mytasks"><span class="stat-num">${TASKS.length}</span><span class="stat-label">Total tasks</span></button>
         <button class="stat-card" data-goto="#/projects"><span class="stat-num">${PROJECTS.length}</span><span class="stat-label">Active projects</span></button>
-        <button class="stat-card" data-goto="#/inbox"><span class="stat-num">${INBOX_ITEMS.filter(i => i.unread).length}</span><span class="stat-label">Unread inbox</span></button>
+        <button class="stat-card" data-goto="#/inbox"><span class="stat-num">${INBOX_ITEMS.filter(i => !readFlags[i.id]).length}</span><span class="stat-label">Unread inbox</span></button>
         <button class="stat-card" data-goto="#/saved"><span class="stat-num">${savedIds.length}</span><span class="stat-label">Saved items</span></button>
       </div>
       <h2 class="section-title">Progress overview</h2>
@@ -758,15 +769,15 @@ routes.home = () => {
         ${Object.entries(counts).map(([k, v]) => `
           <div class="bar-row">
             <span class="bar-label"><span class="status-dot ${PROGRESS[k].dot}"></span>${k}</span>
-            <div class="bar-track"><div class="bar-fill" style="width:${Math.round(v / TASKS.length * 100)}%"></div></div>
+            <div class="bar-track"><div class="bar-fill" style="width:${Math.round(v / Math.max(TASKS.length, 1) * 100)}%"></div></div>
             <span class="bar-count">${v}</span>
           </div>`).join('')}
       </div>
       <h2 class="section-title">Recent activity</h2>
       <ul class="activity-list">
-        ${INBOX_ITEMS.slice(0, 5).map((it, i) => `
-          <li data-inbox="${i}" style="cursor:pointer"><span class="avatar avatar-sm" style="--a:${it.color}">${it.initials}</span>
-              <span><strong>${it.who}</strong> ${esc(it.text)} <em>${it.time}</em></span></li>`).join('')}
+        ${INBOX_ITEMS.slice(0, 5).map((it) => `
+          <li data-inbox="${it.id}" style="cursor:pointer"><span class="avatar avatar-sm" style="--a:${it.color}">${it.initials}</span>
+              <span><strong>${esc(it.who)}</strong> ${esc(it.text)} <em>${timeAgo(it.at)}</em></span></li>`).join('')}
       </ul>
       <h2 class="section-title">Your tasks</h2>
       ${taskTableHtml(mine)}
@@ -783,22 +794,25 @@ routes.inbox = () => {
           <button id="mark-all-read" class="btn btn-ghost btn-sm">Mark all as read</button></p>
       </div>
       <ul class="inbox-list">
-        ${INBOX_ITEMS.map((it, i) => `
-          <li class="inbox-item ${it.unread ? 'unread' : ''}" data-inbox="${i}">
+        ${INBOX_ITEMS.map((it) => {
+          const unread = !readFlags[it.id];
+          return `
+          <li class="inbox-item ${unread ? 'unread' : ''}" data-inbox="${it.id}">
             <span class="avatar avatar-sm" style="--a:${it.color}">${it.initials}</span>
             <div class="inbox-body">
-              <div class="inbox-top"><strong>${it.who}</strong><span class="inbox-time">${it.time}</span></div>
+              <div class="inbox-top"><strong>${esc(it.who)}</strong><span class="inbox-time">${timeAgo(it.at)}</span></div>
               <p>${esc(it.text)}</p>
             </div>
-            ${it.unread ? '<span class="unread-dot"></span>' : ''}
-          </li>`).join('')}
+            ${unread ? '<span class="unread-dot"></span>' : ''}
+          </li>`;
+        }).join('')}
       </ul>
     </section>`;
 };
 
 routes.saved = () => {
   setCrumbs([{ label: 'Overview' }, { label: 'Saved items' }]);
-  const items = TASKS.filter(t => savedIds.includes(t.idx));
+  const items = TASKS.filter(t => savedIds.includes(t.id));
   return `
     <section class="page-pad">
       <div class="page-head"><h1>Saved items</h1><p>Tasks you bookmarked with ☆ in the Properties panel.</p></div>
@@ -820,7 +834,7 @@ function mtToolbarHtml() {
   if (myTaskFilter) chips.push({ key: 'status', label: `Status: ${myTaskFilter}` });
   if (f.progress)   chips.push({ key: 'progress', label: `Progress: ${f.progress}` });
   if (f.urgency)    chips.push({ key: 'urgency', label: `Urgency: ${f.urgency}` });
-  if (f.assignee !== '') chips.push({ key: 'assignee', label: `Owner: ${PEOPLE[+f.assignee] ? PEOPLE[+f.assignee].name : f.assignee}` });
+  if (f.assignee !== '') { const ap = PEOPLE.find(p => p.id === f.assignee); chips.push({ key: 'assignee', label: `Owner: ${ap ? ap.name : f.assignee}` }); }
   const chipHtml = chips.map(c => `<button class="mt-chip" data-mtchip="${c.key}" title="Remove filter">${esc(c.label)}<span class="mt-chip-x">✕</span></button>`).join('');
   const seg = (v, icon, label) => `<button class="mt-seg-btn${mtView === v ? ' active' : ''}" data-mtview="${v}" aria-pressed="${mtView === v}" title="${label} view">${icon}<span>${label}</span></button>`;
   return `
@@ -839,9 +853,9 @@ function mtToolbarHtml() {
 
 routes.mytasks = () => {
   setCrumbs([{ label: 'Overview', hash: '#/home' }, { label: 'My tasks' }]);
-  const me = PEOPLE[0];
-  const allMine = TASKS.filter(t => t.assignee === 0);
-  const mine = visibleTasks().filter(t => t.assignee === 0); // search + status pills + column filters/sorts
+  const me = personById(ME);
+  const allMine = TASKS.filter(t => t.assignee === ME);
+  const mine = visibleTasks().filter(t => t.assignee === ME); // search + status pills + column filters/sorts
   const done = allMine.filter(t => t.progress === 'Completed').length;
   const pct = allMine.length ? Math.round(done / allMine.length * 100) : 0;
   const dueSoon = allMine.filter(t => {
@@ -920,20 +934,20 @@ routes.projects = () => {
       <div class="page-head"><h1>Projects</h1>
         <p><button id="new-project-btn" class="btn btn-primary btn-sm">＋ New project</button></p></div>
       <div class="project-grid">
-        ${PROJECTS.map((pr, i) => `
-          <button class="project-card" data-project="${i}">
-            <div class="pc-avatar" style="--a:${PEOPLE[i % 5].color}">${pr.name.split(' ').map(w => w[0]).join('').slice(0, 2)}</div>
-            <h3>${pr.name}</h3><p>${pr.desc}</p>
-            <div class="pc-meta"><span>${pr.members} members</span><span>${TASKS.filter(t => t.project === slugify(pr.name) && t.progress !== 'Completed').length} open tasks</span></div>
+        ${PROJECTS.map(pr => `
+          <button class="project-card" data-project="${pr.id}">
+            <div class="pc-avatar" style="--a:${(personById(pr.members && pr.members[0]) || PEOPLE[0] || { color: '#43b3ff' }).color}">${pr.name.split(' ').map(w => w[0]).join('').slice(0, 2)}</div>
+            <h3>${esc(pr.name)}</h3><p>${esc(pr.desc)}</p>
+            <div class="pc-meta"><span>${(pr.members || []).length} members</span><span>${typeof pr.open === 'number' ? pr.open : TASKS.filter(t => t.project === pr.id && t.progress !== 'Completed').length} open tasks</span></div>
           </button>`).join('')}
       </div>
     </section>`;
 };
 
 routes.project = (param) => {
-  const pr = PROJECTS.find(p => slugify(p.name) === param);
+  const pr = PROJECTS.find(p => p.id === param || slugify(p.name) === param);
   if (!pr) { location.hash = '#/projects'; return ''; }
-  currentProject = slugify(pr.name);            // scope board/filters/search to this project
+  currentProject = pr.id;                       // scope board/filters/search to this project
   const tasks = scopedTasks();
   setCrumbs([{ label: 'Overview', hash: '#/home' }, { label: 'Projects', hash: '#/projects' }, { label: pr.name }]);
   const selected = tasks[0] || TASKS[0];
@@ -1100,7 +1114,7 @@ function showNewFeatureModal() {
       <label>Name<input id="nf-name" type="text" required placeholder="e.g. Add keyboard shortcuts" /></label>
       <label>Progress<select id="nf-progress">${Object.keys(PROGRESS).map(k => `<option>${k}</option>`).join('')}</select></label>
       <label>Urgency<select id="nf-urgency">${Object.keys(URGENCY).map(k => `<option>${k}</option>`).join('')}</select></label>
-      <label>Assignee<select id="nf-assignee">${PEOPLE.map((p, i) => `<option value="${i}">${p.name}</option>`).join('')}</select></label>
+      <label>Assignee<select id="nf-assignee">${PEOPLE.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}</select></label>
       <label>Project<select id="nf-project">${PROJECTS.map(p => `<option value="${slugify(p.name)}" ${slugify(p.name) === currentProject ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
       <button type="submit" class="btn btn-primary">Create task</button>
     </form>`);
@@ -1165,14 +1179,19 @@ document.body.addEventListener('click', (e) => {
   }
 
   if (el.id === 'mark-all-read') {
-    INBOX_ITEMS.forEach((_, i) => { readFlags[i] = true; });
-    INBOX_ITEMS.forEach(it => it.unread = false);
+    INBOX_ITEMS.forEach(it => { readFlags[it.id] = true; });
+    patchInboxReadAll();
     persist(); render(); return toast('Inbox cleared');
   }
   if (el.dataset.inbox !== undefined) {
-    const it = INBOX_ITEMS[+el.dataset.inbox];
-    readFlags[+el.dataset.inbox] = true; it.unread = false; persist();
-    if (it.task != null) { location.hash = `#/task/${TASKS[it.task].idx}`; } else render();
+    const it = INBOX_ITEMS.find(x => x.id === el.dataset.inbox);
+    if (!it) return;
+    readFlags[it.id] = true; patchInboxRead(it.id); persist();
+    if (it.task != null) {
+      const t = TASKS.find(x => x.id === it.task);
+      if (t) { location.hash = `#/task/${t.idx}`; return; }
+    }
+    render();
     return;
   }
   if (el.dataset.calday !== undefined) {
@@ -1185,36 +1204,37 @@ document.body.addEventListener('click', (e) => {
     return;
   }
   if (el.dataset.project !== undefined) {
-    const pr = PROJECTS[+el.dataset.project];
-    location.hash = `#/project/${slugify(pr.name)}`;
+    location.hash = `#/project/${el.dataset.project}`;
     return;
   }
   if (el.id === 'new-project-btn') {
-    return openModal('New project', `<form id="new-project-form"><label>Project name<input id="np-name" type="text" required placeholder="e.g. Mobile App v3" /></label><label>Owner<select id="np-owner">${PEOPLE.map((p, i) => `<option value="${i}">${p.name}</option>`).join('')}</select></label><button class="btn btn-primary">Create project</button></form>`);
+    return openModal('New project', `<form id="new-project-form"><label>Project name<input id="np-name" type="text" required placeholder="e.g. Mobile App v3" /></label><label>Owner<select id="np-owner">${PEOPLE.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}</select></label><button class="btn btn-primary">Create project</button></form>`);
   }
   if (el.dataset.person !== undefined) {
-    const p = PEOPLE[+el.dataset.person];
+    const p = personById(el.dataset.person);
     return openModal(p.name, `
       <div class="profile-head"><span class="avatar" style="--a:${p.color};width:48px;height:48px;font-size:16px">${p.initials}</span>
-      <div><h3>${p.name}</h3><p>Engineering · TaskHive</p></div></div>
+      <div><h3>${esc(p.name)}</h3><p>Engineering · TaskHive</p></div></div>
       <p class="modal-lead">Assigned tasks:</p>
-      <ul class="mini-tasks">${TASKS.filter(t => t.assignee === +el.dataset.person).map(t =>
+      <ul class="mini-tasks">${TASKS.filter(t => t.assignee === el.dataset.person).map(t =>
         `<li><span class="status-dot ${PROGRESS[t.progress].dot}"></span><a href="#/task/${t.idx}">${esc(t.name)}</a></li>`).join('')}</ul>`);
   }
   if (el.dataset.attachment) { e.preventDefault(); return toast(`⬇ Downloading ${el.dataset.attachment}… (demo)`); }
 
   if (el.id === 'save-toggle') {
-    const idx = +(el.dataset.idx ?? 0);
-    if (savedIds.includes(idx)) { savedIds = savedIds.filter(i => i !== idx); toast('Removed from saved items'); }
-    else { savedIds.push(idx); toast('★ Saved item'); }
+    const t = byIdx(+(el.dataset.idx ?? 0));
+    if (!t) return;
+    if (savedIds.includes(t.id)) { savedIds = savedIds.filter(i => i !== t.id); toast('Removed from saved items'); }
+    else { savedIds.push(t.id); toast('★ Saved item'); }
     persist(); render(); return;
   }
   if (el.id === 'save-settings') return toast('✔ Settings saved');
   if (el.id === 'reset-data') {
     try { localStorage.clear(); } catch (_) {}
     savedIds = []; readFlags = {};
-    INBOX_ITEMS.forEach((it, i) => { it.unread = [0, 1, 2].includes(i); });
-    location.hash = '#/home'; render(); return toast('Demo data reset');
+    patchPrefs();
+    location.hash = '#/home';
+    loadBootstrap().then(render); return toast('Workspace reloaded from server');
   }
   if (el.id === 'contact-support') return openModal('Contact support', `<form id="support-form"><label>Subject<input type="text" required /></label><label>Message<textarea rows="4" required></textarea></label><button class="btn btn-primary">Send message</button></form>`);
   if (el.id === 'keyboard-shortcuts') return openModal('Keyboard shortcuts', `<ul class="shortcuts"><li><kbd>N</kbd> New feature</li><li><kbd>/</kbd> Focus search</li><li><kbd>Esc</kbd> Close dialogs</li><li><kbd>Ctrl/Cmd</kbd>+<kbd>Z</kbd> Undo last change</li><li><kbd>Ctrl/Cmd</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> Toggle dark mode</li><li><kbd>Enter</kbd> on a focused row opens the task</li></ul>`);
@@ -1227,7 +1247,7 @@ document.body.addEventListener('click', (e) => {
     const propsHost = document.querySelector('.content-split .properties') || document.querySelector('.page-pad .properties');
     if (propsHost) {
       const fresh = document.createElement('div');
-      fresh.innerHTML = propertiesPanelHtml(TASKS[+tr.dataset.idx]);
+      fresh.innerHTML = propertiesPanelHtml(byIdx(+tr.dataset.idx));
       propsHost.replaceWith(fresh.firstElementChild);
     } else {
       const t = TASKS.find(x => x.idx === +tr.dataset.idx);
@@ -1301,9 +1321,10 @@ document.body.addEventListener('change', (e) => {
     const t = TASKS.find(x => x.idx === idx);
     if (t) {
       const old = t.progress; t.progress = e.target.value;
+      patchTask(t, { progress: t.progress }, 'Status not saved');
       updateTaskRow(idx);
       showUndoToast(`Status → ${t.progress}`);
-      undoStack.push({ label: `Status change`, run: () => { t.progress = old; render(); } });
+      undoStack.push({ label: `Status change`, run: () => { t.progress = old; patchTask(t, { progress: old }); render(); } });
     }
   }
 });
@@ -1364,7 +1385,7 @@ function overviewHtml() {
       </div>
       <h3>Team</h3>
       <div class="team-row">
-        ${PEOPLE.map((p, i) => `<button class="avatar link-avatar" data-person="${i}" style="--a:${p.color}" title="${p.name}">${p.initials}</button>`).join('')}
+        ${PEOPLE.map(p => `<button class="avatar link-avatar" data-person="${p.id}" style="--a:${p.color}" title="${p.name}">${p.initials}</button>`).join('')}
       </div>
       <p class="modal-lead">Switch to the <strong>Tasks</strong> tab to see all ${scope.length} features.</p>
     </div>`;
@@ -1412,8 +1433,8 @@ $('#global-search').addEventListener('input', (e) => {
     // live search results for Home / My tasks / Saved tables
     const tbody = $('#task-rows');
     if (tbody) {
-      const scope = currentRoute === 'mytasks' ? TASKS.filter(t => t.assignee === 0)
-                  : currentRoute === 'saved'   ? TASKS.filter(t => savedIds.includes(t.idx))
+      const scope = currentRoute === 'mytasks' ? TASKS.filter(t => t.assignee === ME)
+                  : currentRoute === 'saved'   ? TASKS.filter(t => savedIds.includes(t.id))
                   : TASKS;
       const q = searchTerm.trim().toLowerCase();
       const rows = scope.filter(t => !q || t.name.toLowerCase().includes(q) || t.id.toLowerCase().includes(q));
@@ -1433,22 +1454,28 @@ document.body.addEventListener('submit', (e) => {
     e.preventDefault();
     const name = $('#nf-name').value.trim();
     if (!name) return;
-    TASKS.unshift({
-      id: 'TSK-' + (nextTaskNum++), name,
+    const body = {
+      name,
       progress: $('#nf-progress').value, urgency: $('#nf-urgency').value,
-      assignee: +$('#nf-assignee').value, comments: 0, idx: nextTaskNum * 1000, // unique stable key
+      assignee: $('#nf-assignee').value,
       project: $('#nf-project') ? $('#nf-project').value : 'q3-plan',
-    });
-    closeModal(); toast(`✔ Created “${name}”`);
-    if (!location.hash.startsWith('#/project') && !location.hash.startsWith('#/task')) location.hash = '#/project/q3-plan';
-    else render();
+      comments: 0,
+    };
+    api('POST', '/tasks', body).then(created => {   // server assigns id + stable idx
+      TASKS.unshift(created);
+      closeModal(); toast(`✔ Created “${name}”`);
+      if (!location.hash.startsWith('#/project') && !location.hash.startsWith('#/task')) location.hash = '#/project/q3-plan';
+      else render();
+    }).catch(err => toast(`⚠ Create failed: ${err.message}`));
   }
   if (e.target.id === 'new-project-form') {
     e.preventDefault();
     const name = $('#np-name').value.trim();
     if (!name) return;
-    PROJECTS.unshift({ name, desc: 'Freshly created project', members: 1, open: 0 });
-    closeModal(); toast(`✔ Project “${name}” created`); render();
+    saveProject(name).then(pr => {
+      PROJECTS.push(pr);
+      closeModal(); toast(`✔ Project “${pr.name}” created`); render();
+    }).catch(err => toast(`⚠ Could not create project: ${err.message}`));
   }
   if (e.target.id === 'support-form') {
     e.preventDefault(); closeModal(); toast('✉ Message sent to support');
@@ -1459,29 +1486,34 @@ document.body.addEventListener('submit', (e) => {
     if (!v) return;
     const idx = +box.dataset.idx;
     const t = TASKS.find(x => x.idx === idx);
-    (DISCUSSIONS[idx] = DISCUSSIONS[idx] || [...DISCUSSIONS.default]).push({ who: 'Priya Sharma', initials: 'PS', color: '#43b3ff', text: v });
-    if (t) t.comments = (t.comments || 0) + 1;
-    const li = document.createElement('li');
-    li.innerHTML = `<span class="avatar avatar-sm" style="--a:#43b3ff">PS</span><div class="comment-body"><div class="comment-author">Priya Sharma</div><p>${esc(v)}</p></div>`;
-    $('#comment-list').appendChild(li);
-    box.value = '';
-    updateTaskRow(idx);
-    toast('💬 Comment posted');
+    if (!t) return;
+    postComment(t.id, v).then(({ comment, comments }) => {
+      (DISCUSSIONS[t.id] = DISCUSSIONS[t.id] || []).push(comment);
+      t.comments = comments;
+      const li = document.createElement('li');
+      li.innerHTML = `<span class="avatar avatar-sm" style="--a:${comment.color}">${comment.initials}</span><div class="comment-body"><div class="comment-author">${esc(comment.who)}</div><p>${esc(comment.text)}</p></div>`;
+      $('#comment-list').appendChild(li);
+      box.value = '';
+      updateTaskRow(idx);
+      toast('💬 Comment posted');
+    }).catch(err => toast(`⚠ Comment not saved: ${err.message}`));
   }
   if (e.target.id === 'chat-form') {
     e.preventDefault();
     const box = $('#chat-box'); const v = box.value.trim();
     if (!v) return;
     const key = parseHash().param || 'engineering';
-    (CHANNEL_MESSAGES[key] = CHANNEL_MESSAGES[key] || []).push({ who: 'Priya Sharma', initials: 'PS', color: '#43b3ff', text: v, time: new Date().toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' }) });
-    const list = $('.chat-list');
-    if (list.querySelector('.empty-state')) render();
-    else {
-      const li = document.createElement('li');
-      li.innerHTML = `<span class="avatar avatar-sm" style="--a:#43b3ff">PS</span><div class="chat-body"><div class="chat-top"><strong>Priya Sharma</strong><em>now</em></div><p>${esc(v)}</p></div>`;
-      list.appendChild(li);
-    }
-    box.value = '';
+    postChannelMsg(key, v).then(msg => {
+      (CHANNEL_MESSAGES[key] = CHANNEL_MESSAGES[key] || []).push(msg);
+      const list = $('.chat-list');
+      if (list.querySelector('.empty-state')) render();
+      else {
+        const li = document.createElement('li');
+        li.innerHTML = `<span class="avatar avatar-sm" style="--a:${msg.color}">${msg.initials}</span><div class="chat-body"><div class="chat-top"><strong>${esc(msg.who)}</strong><em>${msg.time}</em></div><p>${esc(msg.text)}</p></div>`;
+        list.appendChild(li);
+      }
+      box.value = '';
+    }).catch(err => toast(`⚠ Message not saved: ${err.message}`));
   }
 });
 
@@ -1509,5 +1541,33 @@ function toggleDarkMode(force) {
   try { on = localStorage.getItem('darkMode') === '1'; } catch (_) {}
   document.documentElement.classList.toggle('dark', on);
 })();
-if (!location.hash) location.hash = '#/home';
-render();
+
+/* Boot: hydrate in-memory state from GET /api/bootstrap, then render. */
+async function loadBootstrap() {
+  try {
+    const d = await api('GET', '/bootstrap');
+    PEOPLE        = d.people || [];
+    TASKS         = d.tasks || [];
+    PROJECTS      = d.projects || [];
+    INBOX_ITEMS   = d.inbox || [];
+    DISCUSSIONS   = d.discussions || {};
+    CHANNEL_MESSAGES = d.messages || {};
+    // server prefs win over the stale localStorage cache
+    if (Array.isArray(d.savedIds)) savedIds = d.savedIds.filter(x => typeof x === 'string');
+    readFlags = (d.readFlags && typeof d.readFlags === 'object') ? d.readFlags : {};
+    INBOX_ITEMS.forEach(it => { if (it.unread === false) readFlags[it.id] = true; });
+    persist(); // push merged prefs back so both copies agree
+    nextTaskNum = Math.max(100, ...TASKS.map(t => parseInt(String(t.id).replace(/\D/g, ''), 10) || 0)) + 1;
+  } catch (err) {
+    console.error('bootstrap failed:', err);
+    pageEl.innerHTML = `<section class="page-pad"><div class="empty-state">⚠ Could not reach the server.<br>
+      Start it with <code>npm start</code>, then refresh this page.</div></section>`;
+    return;
+  }
+  const loading = $('#boot-loading');
+  if (loading) loading.remove();
+  if (!location.hash) location.hash = '#/home';
+  render();
+}
+
+loadBootstrap();
