@@ -254,8 +254,9 @@ async function handleApi(req, res, url) {
         open: db.tasks.filter(t => t.project === p.id && t.progress !== 'Completed').length,
       })),
       tasks: db.tasks,
-      inbox: db.inbox,
+      inbox: db.inbox.map(it => ({ ...it, unread: !db.readFlags[it.id] })),
       discussions: db.discussions,
+      messages: db.messages,
       savedIds: db.savedIds,
       readFlags: db.readFlags,
     });
