@@ -1,0 +1,18 @@
+PASS no skeleton while login overlay is up
+PASS loading skeleton shown while bootstrap is in flight
+PASS skeleton replaced by real content after load
+PASS error boundary renders friendly panel with details
+PASS error boundary offers Try again / Back to Home actions
+PASS recovery from error boundary restores normal view
+PASS skip-to-content link present
+PASS sidebar labelled as Primary navigation
+PASS toast region is aria-live polite
+PASS modal has role=dialog + aria-modal
+PASS search input has accessible name
+PASS task rows are keyboard focusable (tabindex=0)
+PASS (checked after nav)
+PASS nav items reachable via programmatic/keyboard focus
+PASS prefers-reduced-motion collapses animations (dur=1e-05s)
+PASS zero page errors across all routes (clean)
+
+16 passed, 0 failed

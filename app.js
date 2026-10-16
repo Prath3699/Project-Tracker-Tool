@@ -785,6 +785,7 @@ function doLogin(email, password) {
   return api('POST', '/login', { email, password }).then(d => {
     authExpired = false;
     ME = d.user.id;
+    try { localStorage.setItem('th_session_hint', '1'); } catch (_) {}   // skeleton hint for next boot
     hideLoginScreen();
     return loadBootstrap();
   });
@@ -793,6 +794,7 @@ function doLogin(email, password) {
 function doLogout() {
   return api('POST', '/logout', {}).catch(() => {}).then(() => {
     ME = null; savedIds = []; readFlags = {};
+    try { localStorage.removeItem('th_session_hint'); } catch (_) {}
     showLoginScreen('Signed out.');
   });
 }
@@ -851,9 +853,10 @@ function render() {
   const fn = routes[name] || routes.home;
   currentRoute = name;
   // Show skeletons when navigating before bootstrap data has arrived.
-  if (!PEOPLE.length && !document.body.classList.contains('show-login')) {
+  // (If loadBootstrap already painted them, keep its markup — don't re-inject.)
+  if (!PEOPLE.length && !document.body.classList.contains('show-login') && !pageEl.querySelector('.sk-row,.sk-card,.sk-col')) {
     pageEl.innerHTML = skeletonHtml(name === 'projects' ? 'cards' : 'board');
-  } else {
+  } else if (PEOPLE.length) {
     try {
       pageEl.innerHTML = fn(param);
     } catch (err) {
@@ -861,6 +864,7 @@ function render() {
       renderErrorView(err);
     }
   }
+  // else: skeleton already painted by loadBootstrap — leave it until data arrives
   setActiveNav(name, param);
   if (name === 'mytasks' && mtView === 'board') {
     const c = $('.mt-content');
@@ -1711,21 +1715,35 @@ function toggleDarkMode(force) {
    Phase 2: bootstrap also returns the current session user; unauthenticated
    visitors get the login screen instead of workspace data. */
 async function loadBootstrap() {
-  // While the first bootstrap request is in flight, paint skeleton placeholders.
-  const skKind = (parseHash().name === 'projects') ? 'cards' : 'board';
+  // Skeleton placeholders: shown while bootstrap is in flight for a returning
+  // session (cookie present → we know the workspace will render). For a cold
+  // visit the login overlay covers the page instead, so no skeletons there.
   let skShown = false;
-  if (!PEOPLE.length && pageEl) { pageEl.innerHTML = skeletonHtml(skKind); skShown = true; }
+  const showSk = () => {
+    if (skShown || PEOPLE.length || !pageEl) return;
+    const skKind = (parseHash().name === 'projects') ? 'cards' : 'board';
+    pageEl.innerHTML = skeletonHtml(skKind); skShown = true;
+  };
+  const clearSk = () => { if (skShown && pageEl) { pageEl.innerHTML = ''; skShown = false; } };
+  // Paint skeletons for a returning session (we optimistically set the marker
+  // at login/signup since the session cookie itself is HttpOnly). A cold
+  // visitor sees the login overlay instead, so there we wait briefly.
+  let hasSession = false;
+  try { hasSession = localStorage.getItem('th_session_hint') === '1'; } catch (_) {}
+  const skTimer = hasSession ? (showSk(), null) : setTimeout(showSk, 120);
   try {
     const d = await api('GET', '/bootstrap');
+    clearTimeout(skTimer);
     PEOPLE        = d.people || [];
     TASKS         = d.tasks || [];
     PROJECTS      = d.projects || [];
     INBOX_ITEMS   = d.inbox || [];
     DISCUSSIONS   = d.discussions || {};
     CHANNEL_MESSAGES = d.messages || {};
-    if (d.user) { ME = d.user.id; hideLoginScreen(); }   // session cookie present — enter workspace
-    else if (!document.body.classList.contains('show-login')) {
-      if (skShown) pageEl.innerHTML = '';                // skeletons are meaningless behind the login overlay
+    if (d.user) { ME = d.user.id; try { localStorage.setItem('th_session_hint', '1'); } catch (_) {} hideLoginScreen(); }   // session cookie present — enter workspace
+    else {
+      clearSk();                                          // skeletons are meaningless behind the login overlay
+      try { localStorage.removeItem('th_session_hint'); } catch (_) {}
       showLoginScreen(); return;
     }
     // server prefs win over the stale localStorage cache
@@ -1736,6 +1754,7 @@ async function loadBootstrap() {
     nextTaskNum = Math.max(100, ...TASKS.map(t => parseInt(String(t.id).replace(/\D/g, ''), 10) || 0)) + 1;
   } catch (err) {
     console.error('bootstrap failed:', err);
+    clearTimeout(skTimer); clearSk();
     if (err.status === 401) { ME = null; showLoginScreen('Please sign in to continue.'); renderLoginScreen(); return; }
     hideLoginScreen();
     pageEl.innerHTML = `<section class="page-pad"><div class="empty-state">⚠ Could not reach the server.<br>
@@ -1770,6 +1789,7 @@ document.body.addEventListener('submit', (e) => {
     }).then(d => {
       authExpired = false;
       ME = d.user.id;
+      try { localStorage.setItem('th_session_hint', '1'); } catch (_) {}
       hideLoginScreen();
       return loadBootstrap();
     }).catch(err => {
