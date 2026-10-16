@@ -5,6 +5,7 @@
   },
   "dependencies": {
     "@playwright/test": "^1.64.0",
+    "better-sqlite3": "^12.11.1",
     "puppeteer-core": "^24.43.1"
   }
 }

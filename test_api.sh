@@ -1,19 +1,99 @@
 #!/bin/bash
 # Smoke tests for the Issue Tracker backend (expects server running on :3000)
+# Phase 2+4: auth required for mutations, scrypt passwords, SQLite mirror,
+# soft deletes + pagination.
 B=http://localhost:3000/api
-echo "== bootstrap =="; curl -s $B/bootstrap | head -c 250; echo
-echo "== create task =="; curl -s -X POST $B/tasks -H 'Content-Type: application/json' -d '{"name":"Backend smoke test task","urgency":"Critical","project":"api-docs"}'; echo
-TID=$(curl -s "$B/tasks?q=backend%20smoke" | node -pe 'JSON.parse(require("fs").readFileSync(0)).pop().id')
-echo "== patch task ($TID) =="; curl -s -X PATCH $B/tasks/$TID -d '{"progress":"Completed"}'; echo
-echo "== invalid urgency (expect 400) =="; curl -s -o /dev/null -w '%{http_code}\n' -X PATCH $B/tasks/$TID -d '{"urgency":"Bogus"}'
-echo "== filter project=api-docs =="; curl -s "$B/tasks?project=api-docs" | node -pe 'JSON.parse(require("fs").readFileSync(0)).map(t=>t.id).join(",")'
-echo "== delete =="; curl -s -X DELETE $B/tasks/$TID; echo
-echo "== prefs =="; curl -s -X PATCH $B/prefs -d '{"savedIds":["TSK-8"],"readFlags":{"inbox-1":true}}'; echo
-echo "== channel msg =="; curl -s -X POST $B/channels/engineering -d '{"text":"hello from backend test"}'; echo
-echo "== channel get =="; curl -s $B/channels/engineering; echo
-echo "== board reorder =="; curl -s -X PATCH $B/board -d '{"order":["TSK-101","TSK-100","TSK-22"]}'; echo
-echo "== bad reorder id (expect 400) =="; curl -s -o /dev/null -w '%{http_code}\n' -X PATCH $B/board -d '{"order":["NOPE"]}'
-echo "== unknown endpoint (expect 404) =="; curl -s -o /dev/null -w '%{http_code}\n' $B/nope
-echo "== static index (expect 200 html) =="; curl -s -o /dev/null -w '%{http_code} %{content_type}\n' http://localhost:3000/index.html
-echo "== path traversal (expect non-200) =="; curl -s -o /dev/null -w '%{http_code}\n' --path-as-is "http://localhost:3000/../etc/passwd"
-echo "== persistence check: db.json exists =="; ls -la /workspace/data/db.json
+JAR=/tmp/taskhive_test_cookies.txt
+rm -f $JAR
+PASS=0; FAIL=0
+chk() { # chk <desc> <expected> <actual>
+  if [ "$2" = "$3" ]; then PASS=$((PASS+1)); echo "ok   $1";
+  else FAIL=$((FAIL+1)); echo "FAIL $1 (expected=$2 got=$3)"; fi
+}
+
+echo "== unauthenticated mutation is rejected (expect 401) =="
+chk "401 no-auth POST /tasks" 401 "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/tasks -H 'Content-Type: application/json' -d '{"name":"nope","project":"api-docs"}')"
+
+echo "== login with wrong password (expect 401) =="
+chk "401 bad password" 401 "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/login -d '{"email":"parth@catlas.inc","password":"wrong"}')"
+
+echo "== login (scrypt-hashed demo password) =="
+chk "200 login" 200 "$(curl -s -c $JAR -o /dev/null -w '%{http_code}' -X POST $B/login -d '{"email":"parth@catlas.inc","password":"password"}')"
+
+echo "== session reflects user =="
+chk "session has user" p1 "$(curl -s -b $JAR $B/session | node -pe 'JSON.parse(require("fs").readFileSync(0)).user.id')"
+
+echo "== bootstrap (per-user prefs) =="
+chk "bootstrap keys" "user,people,projects,tasks,inbox,discussions,messages,savedIds,readFlags" \
+  "$(curl -s -b $JAR $B/bootstrap | node -pe 'Object.keys(JSON.parse(require("fs").readFileSync(0))).join(",")')"
+
+echo "== create task (authed) =="
+chk "201 create" 201 "$(curl -s -b $JAR -o /dev/null -w '%{http_code}' -X POST $B/tasks -H 'Content-Type: application/json' -d '{"name":"Backend smoke test task","urgency":"Critical","project":"api-docs"}')"
+TID=$(curl -s -b $JAR "$B/tasks?q=backend%20smoke" | node -pe 'const d=JSON.parse(require("fs").readFileSync(0)); (d.items||d)[0].id')
+echo "task id: $TID"
+
+echo "== patch task ($TID) =="
+chk "200 patch" 200 "$(curl -s -b $JAR -o /dev/null -w '%{http_code}' -X PATCH $B/tasks/$TID -d '{"progress":"Completed"}')"
+
+echo "== invalid urgency (expect 400) =="
+chk "400 bad enum" 400 "$(curl -s -b $JAR -o /dev/null -w '%{http_code}' -X PATCH $B/tasks/$TID -d '{"urgency":"Bogus"}')"
+
+echo "== title length capped at 200 chars =="
+LONG=$(node -e 'console.log("x".repeat(500))')
+chk "201 long name" 201 "$(curl -s -b $JAR -o /dev/null -w '%{http_code}' -X POST $B/tasks -d "{\"name\":\"$LONG\",\"project\":\"api-docs\"}")"
+LID=$(curl -s -b $JAR "$B/tasks?limit=100" | node -pe 'const t=JSON.parse(require("fs").readFileSync(0)).items.find(t=>t.name.length===200); t?t.id:"none"')
+if [ "$LID" != "none" ]; then chk "name sliced to 200" 200 "$(curl -s -b $JAR $B/tasks/$LID | node -pe 'JSON.parse(require("fs").readFileSync(0)).name.length')"; curl -s -b $JAR -X DELETE $B/tasks/$LID > /dev/null; else FAIL=$((FAIL+1)); echo "FAIL long-name task not found"; fi
+
+echo "== empty name rejected (expect 400) =="
+chk "400 empty name" 400 "$(curl -s -b $JAR -o /dev/null -w '%{http_code}' -X POST $B/tasks -d '{"name":"   "}')"
+
+echo "== filter project=api-docs =="
+curl -s -b $JAR "$B/tasks?project=api-docs" | node -pe 'JSON.parse(require("fs").readFileSync(0)).map(t=>t.id).join(",")'
+
+echo "== pagination: limit/offset returns page object =="
+chk "page size" 2 "$(curl -s -b $JAR "$B/tasks?limit=2&offset=0" | node -pe 'JSON.parse(require("fs").readFileSync(0)).items.length')"
+chk "total is number" true "$(curl -s -b $JAR "$B/tasks?limit=2&offset=0" | node -pe 'typeof JSON.parse(require("fs").readFileSync(0)).total==="number"')"
+ID0=$(curl -s -b $JAR "$B/tasks?limit=1&offset=0" | node -pe 'JSON.parse(require("fs").readFileSync(0)).items[0].id')
+ID1=$(curl -s -b $JAR "$B/tasks?limit=1&offset=1" | node -pe 'JSON.parse(require("fs").readFileSync(0)).items[0].id')
+if [ -n "$ID0" ] && [ -n "$ID1" ] && [ "$ID0" != "$ID1" ]; then PASS=$((PASS+1)); echo "ok   offset shifts window"; else FAIL=$((FAIL+1)); echo "FAIL offset shifts window ($ID0 vs $ID1)"; fi
+
+echo "== delete == (soft delete)"
+curl -s -b $JAR -X DELETE $B/tasks/$TID; echo
+echo "== deleted task gone from list =="
+chk "not in list" "" "$(curl -s -b $JAR "$B/tasks?limit=500" | node -pe 'const d=JSON.parse(require("fs").readFileSync(0)); ((d.items||d).find(t=>t.id==="'$TID'")||{}).id||""')"
+
+echo "== prefs (per-user) =="
+chk "200 prefs" 200 "$(curl -s -b $JAR -o /dev/null -w '%{http_code}' -X PATCH $B/prefs -d '{"savedIds":["TSK-8"],"readFlags":{"inbox-1":true}}')"
+
+echo "== channel msg =="
+CODE=$(curl -s -b $JAR -o /dev/null -w '%{http_code}' -X POST $B/channels/engineering -d '{"text":"hello from backend test"}')
+if [ "$CODE" = "200" ] || [ "$CODE" = "201" ]; then PASS=$((PASS+1)); echo "ok   channel post ($CODE)"; else FAIL=$((FAIL+1)); echo "FAIL channel post ($CODE)"; fi
+echo "== channel get =="
+curl -s -b $JAR $B/channels/engineering | tail -c 120; echo
+
+echo "== board reorder =="
+curl -s -b $JAR -X PATCH $B/board -d '{"order":["TSK-101","TSK-100","TSK-22"]}'; echo
+echo "== bad reorder id (expect 400) =="
+chk "400 bad order" 400 "$(curl -s -b $JAR -o /dev/null -w '%{http_code}' -X PATCH $B/board -d '{"order":["NOPE"]}')"
+
+echo "== unknown endpoint (expect 404) =="
+chk "404 unknown" 404 "$(curl -s -b $JAR -o /dev/null -w '%{http_code}' $B/nope)"
+
+echo "== static index (expect 200 html) =="
+chk "200 index" 200 "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/index.html)"
+
+echo "== path traversal (expect non-200) =="
+CODE=$(curl -s -o /dev/null -w '%{http_code}' --path-as-is "http://localhost:3000/../etc/passwd")
+if [ "$CODE" != "200" ]; then PASS=$((PASS+1)); echo "ok   traversal blocked ($CODE)"; else FAIL=$((FAIL+1)); echo "FAIL traversal allowed"; fi
+
+echo "== logout clears cookie =="
+chk "200 logout" 200 "$(curl -s -b $JAR -o /dev/null -w '%{http_code}' -X POST $B/logout)"
+chk "401 after logout" 401 "$(curl -s -b $JAR -o /dev/null -w '%{http_code}' -X POST $B/tasks -d '{"name":"after logout"}')"
+
+echo "== persistence check: storage files exist =="
+if ls /workspace/data/taskhive.db >/dev/null 2>&1 || ls /workspace/data/db.json >/dev/null 2>&1; then
+  PASS=$((PASS+1)); echo "ok   storage files present"; else FAIL=$((FAIL+1)); echo "FAIL no storage"; fi
+
+echo
+echo "RESULT: $PASS passed, $FAIL failed"
+[ $FAIL -eq 0 ]

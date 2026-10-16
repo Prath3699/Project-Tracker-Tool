@@ -16,24 +16,55 @@ const crypto = require('crypto');
 
 const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, 'data');
-const DB_FILE = path.join(DATA_DIR, 'db.json');
+const DB_FILE = path.join(DATA_DIR, 'db.json');   // fallback store (no SQLite driver)
+const SQLITE_FILE = path.join(DATA_DIR, 'taskhive.db'); // durable store (Phase 4)
 const PORT = Number(process.argv[2] || process.env.PORT || 3000);
 
 /* ------------------------------------------------------------------ */
-/* Storage layer (simple JSON-file "database" with atomic writes)      */
+/* Storage layer (SQLite-backed with JSON-file fallback)               */
 /* ------------------------------------------------------------------ */
 
-/* Demo credentials: each seeded person logs in with `password`.
- * A real deployment would store scrypt hashes instead of plain demo passwords. */
+let sqlite = null;
+try {
+  const Driver = require('better-sqlite3');
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  sqlite = new Driver(SQLITE_FILE);
+  sqlite.pragma('journal_mode = WAL');   // crash-safe durability
+} catch (e) {
+  sqlite = null;                          // driver unavailable → atomic JSON fallback
+}
+
+/* Phase 4 — credential hardening: passwords are stored as salted scrypt
+ * hashes (never plaintext). The demo accounts all share the password
+ * "password". */
 const DEMO_PASSWORD = 'password';
+
+const SCRYPT_PARAMS = { N: 16384, r: 8, p: 1, keylen: 32 };
+function hashPassword(pw) {
+  const salt = crypto.randomBytes(16);
+  const hash = crypto.scryptSync(String(pw), salt, SCRYPT_PARAMS.keylen, SCRYPT_PARAMS);
+  return `sc$${salt.toString('hex')}$${hash.toString('hex')}`;
+}
+function verifyPassword(pw, stored) {
+  if (typeof stored !== 'string') return false;
+  if (!stored.startsWith('sc$')) {           // legacy plaintext entry — migrate on first login
+    return crypto.timingSafeEqual(Buffer.padEnd(Buffer.from(String(pw)), 256), Buffer.padEnd(Buffer.from(stored), 256))
+      && String(pw) === stored ? 'migrate' : false;
+  }
+  const [, saltHex, hashHex] = stored.split('$');
+  if (!saltHex || !hashHex) return false;
+  const a = Buffer.from(hashHex, 'hex');
+  const b = crypto.scryptSync(String(pw), Buffer.from(saltHex, 'hex'), a.length, SCRYPT_PARAMS);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
 
 function seedData() {
   const people = [
-    { id: 'p1', name: 'Parth Sharma', initials: 'PT', color: '#43b3ff', email: 'parth@catlas.inc',   password: DEMO_PASSWORD },
-    { id: 'p2', name: 'David Lee',    initials: 'DL', color: '#ffa575', email: 'david@catlas.inc',   password: DEMO_PASSWORD },
-    { id: 'p3', name: 'Maya Chen',    initials: 'MC', color: '#7b60ff', email: 'maya@catlas.inc',    password: DEMO_PASSWORD },
-    { id: 'p4', name: 'Alex Kim',     initials: 'AK', color: '#3eb957', email: 'alex@catlas.inc',    password: DEMO_PASSWORD },
-    { id: 'p5', name: 'Sara Noor',    initials: 'SN', color: '#db672d', email: 'sara@catlas.inc',    password: DEMO_PASSWORD },
+    { id: 'p1', name: 'Parth Sharma', initials: 'PT', color: '#43b3ff', email: 'parth@catlas.inc',   password: hashPassword(DEMO_PASSWORD) },
+    { id: 'p2', name: 'David Lee',    initials: 'DL', color: '#ffa575', email: 'david@catlas.inc',   password: hashPassword(DEMO_PASSWORD) },
+    { id: 'p3', name: 'Maya Chen',    initials: 'MC', color: '#7b60ff', email: 'maya@catlas.inc',    password: hashPassword(DEMO_PASSWORD) },
+    { id: 'p4', name: 'Alex Kim',     initials: 'AK', color: '#3eb957', email: 'alex@catlas.inc',    password: hashPassword(DEMO_PASSWORD) },
+    { id: 'p5', name: 'Sara Noor',    initials: 'SN', color: '#db672d', email: 'sara@catlas.inc',    password: hashPassword(DEMO_PASSWORD) },
   ];
 
   const projects = [
@@ -131,6 +162,107 @@ function seedData() {
 
 let db;
 
+/* ------------------------------------------------------------------ */
+/* Phase 4 — SQLite task mirror                                        */
+/*                                                                     */
+/* The JSON document store remains the source of truth, but every task */
+/* is also mirrored into a normalized SQLite `tasks` table with real   */
+/* columns and indexes. Indexed reads (by id / idx) are served from    */
+/* SQLite; deletes are soft-deletes (deleted_at) so rows stay          */
+/* recoverable; pagination is supported on GET /api/tasks.             */
+/* ------------------------------------------------------------------ */
+
+const TASK_COLS = 'id TEXT PRIMARY KEY, idx INTEGER UNIQUE, name TEXT, progress TEXT, urgency TEXT, assignee TEXT, project TEXT, comments INTEGER, deleted_at TEXT, created_at TEXT';
+/* Just the column names, for INSERT lists (TASK_COLS includes type defs). */
+const TASK_COL_NAMES = ['id', 'idx', 'name', 'progress', 'urgency', 'assignee', 'project', 'comments', 'deleted_at', 'created_at'];
+let taskStmts = null; // prepared statements (only when sqlite is active)
+
+function initTaskTable() {
+  if (!sqlite) return;
+  sqlite.exec(`CREATE TABLE IF NOT EXISTS tasks (${TASK_COLS});
+               CREATE INDEX IF NOT EXISTS idx_tasks_project  ON tasks(project);
+               CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee);
+               CREATE INDEX IF NOT EXISTS idx_tasks_idx      ON tasks(idx);`);
+  taskStmts = {
+    upsert: sqlite.prepare(`INSERT INTO tasks (${TASK_COL_NAMES.join(',')})
+        VALUES (@id,@idx,@name,@progress,@urgency,@assignee,@project,@comments,@deleted_at,@created_at)
+        ON CONFLICT(id) DO UPDATE SET
+          idx=@idx, name=@name, progress=@progress, urgency=@urgency,
+          assignee=@assignee, project=@project, comments=@comments, deleted_at=@deleted_at`),
+    get:     sqlite.prepare('SELECT * FROM tasks WHERE id = ? AND deleted_at IS NULL'),
+    byIdx:   sqlite.prepare('SELECT * FROM tasks WHERE idx = ? AND deleted_at IS NULL'),
+    live:    sqlite.prepare('SELECT * FROM tasks WHERE deleted_at IS NULL'),
+    softDel: sqlite.prepare('UPDATE tasks SET deleted_at = ? WHERE id = ?'),
+    revive:  sqlite.prepare('UPDATE tasks SET deleted_at = NULL WHERE id = ?'),
+  };
+}
+
+function rowFromTask(t) {
+  return {
+    id: t.id, idx: t.idx ?? null, name: t.name, progress: t.progress, urgency: t.urgency,
+    assignee: t.assignee, project: t.project, comments: t.comments ?? 0,
+    deleted_at: t.deletedAt || null, created_at: t.createdAt || null,
+  };
+}
+function taskFromRow(r) {
+  const t = {
+    id: r.id, name: r.name, progress: r.progress, urgency: r.urgency,
+    assignee: r.assignee, project: r.project, comments: r.comments, createdAt: r.created_at,
+  };
+  if (r.idx != null) t.idx = r.idx;
+  if (r.deleted_at) t.deletedAt = r.deleted_at;
+  return t;
+}
+
+/* Mirror one task into the table (no-op without SQLite). */
+function upsertTaskRow(t) {
+  if (!taskStmts) return;
+  try { taskStmts.upsert.run(rowFromTask(t)); } catch (e) { console.error('task mirror upsert failed:', e.message); }
+}
+/* Soft-delete keeps the row (recoverable); falls back to a hard delete of a
+   non-existent row otherwise. */
+function softDeleteTaskRow(id) {
+  if (!taskStmts) return;
+  try {
+    const info = taskStmts.softDel.run(new Date().toISOString(), id);
+    if (!info.changes) upsertTaskRow({ id, deletedAt: new Date().toISOString() });
+  } catch (e) { console.error('task mirror delete failed:', e.message); }
+}
+function reviveTaskRow(t) {
+  if (!taskStmts || !t) return;
+  try { taskStmts.revive.run(t.id); }
+  catch (_) { /* fall through */ }
+  upsertTaskRow(t);
+}
+
+/* Rebuild the whole mirror from the document store (startup). */
+function syncTaskTable() {
+  if (!sqlite || !taskStmts) return;
+  try {
+    const tx = sqlite.transaction(() => {
+      sqlite.prepare('DELETE FROM tasks').run();
+      for (const t of db.tasks) taskStmts.upsert.run(rowFromTask(t));
+    });
+    tx();
+  } catch (e) { console.error('task mirror sync failed:', e.message); }
+}
+
+/* Indexed lookup served by SQLite; undefined means "use document fallback". */
+function sqliteTaskById(param) {
+  if (!taskStmts) return undefined;
+  let r = taskStmts.get.get(param);
+  if (!r && /^-?\d+$/.test(param)) r = taskStmts.byIdx.get(Number(param));
+  return r ? taskFromRow(r) : undefined;
+}
+
+/* Return a soft-deleted mirror row (for 410 Gone responses), or null. */
+function sqliteDeletedRow(id) {
+  if (!sqlite || !taskStmts) return null;
+  try {
+    return sqlite.prepare('SELECT * FROM tasks WHERE id = ? AND deleted_at IS NOT NULL').get(id) || null;
+  } catch (_) { return null; }
+}
+
 /* Additive migration so older db.json files gain new collections/counters. */
 function migrate(d) {
   const seed = seedData();
@@ -150,10 +282,12 @@ function migrate(d) {
   }
   delete d.savedIds;
   delete d.readFlags;
-  /* Phase 2: make sure every person has login credentials + an email. */
+  /* Phase 4: passwords are stored as salted scrypt hashes. Legacy entries
+     (plaintext, e.g. the old demo value) are upgraded in place on load. */
   d.people.forEach((p, i) => {
     if (!p.email) p.email = `${String(p.name || 'user' + i).toLowerCase().replace(/[^a-z0-9]+/g, '.')}@catlas.inc`;
-    if (!p.password) p.password = DEMO_PASSWORD;
+    if (!p.password) p.password = hashPassword(DEMO_PASSWORD);
+    else if (!String(p.password).startsWith('sc$')) p.password = hashPassword(String(p.password));
   });
   return d;
 }
@@ -167,27 +301,47 @@ function userPrefs(uid) {
 }
 
 function loadDb() {
+  if (sqlite) {
+    /* Durable store first; fall back to the legacy JSON file, then to seed. */
+    try {
+      sqlite.exec('CREATE TABLE IF NOT EXISTS store (k TEXT PRIMARY KEY, v TEXT)');
+      const row = sqlite.prepare('SELECT v FROM store WHERE k = ?').get('doc');
+      if (row) { db = migrate(JSON.parse(row.v)); return; }
+    } catch (e) { console.error('SQLite read failed:', e.message); }
+  }
   try {
     db = migrate(JSON.parse(fs.readFileSync(DB_FILE, 'utf8')));
   } catch (_) {
     db = seedData();
-    saveDbSync();
   }
+  saveDbSync(); // persist into the durable store (and retire the stale JSON file)
 }
 
 let saveTimer = null;
-function saveDb() {            // debounced atomic write
+function saveDb() {            // debounced durable write
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(saveDbSync, 50);
 }
 function saveDbSync() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
+  const json = JSON.stringify(db, null, 2);
+  if (sqlite) {
+    try {
+      sqlite.exec('CREATE TABLE IF NOT EXISTS store (k TEXT PRIMARY KEY, v TEXT)');
+      sqlite.prepare('INSERT INTO store (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v')
+            .run('doc', json);
+      syncTaskTable();
+      return;
+    } catch (e) { console.error('SQLite write failed, falling back to JSON file:', e.message); }
+  }
   const tmp = DB_FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(db, null, 2));
+  fs.writeFileSync(tmp, json);
   fs.renameSync(tmp, DB_FILE); // atomic swap
 }
 
 loadDb();
+initTaskTable();
+syncTaskTable();
 
 /* ------------------------------------------------------------------ */
 /* Tiny router helpers                                                 */
@@ -342,10 +496,13 @@ async function handleApi(req, res, url) {
     const b = await readBody(req);
     const email = String(b.email || '').trim().toLowerCase();
     const person = db.people.find(p => p.email && p.email.toLowerCase() === email);
-    if (!person || person.password !== String(b.password || '')) {
+    const ok = person && verifyPassword(String(b.password || ''), person.password);
+    if (!ok) {
       return send(res, 401, { error: 'Invalid email or password' });
     }
+    if (ok === 'migrate') person.password = hashPassword(String(b.password)); // upgrade legacy plaintext on first login
     const token = createSession(person.id);
+    saveDb();
     return send(res, 200, { user: publicPerson(person) }, { 'Set-Cookie': sessionCookie(token, SESSION_TTL_MS / 1000) });
   }
   if (seg === 'logout' && method === 'POST') {
@@ -371,7 +528,8 @@ async function handleApi(req, res, url) {
     const palette = ['#43b3ff', '#ffa575', '#7b60ff', '#3eb957', '#db672d', '#e34a8f', '#2fbcb0'];
     const person = {
       id: 'p' + (db.people.reduce((m, p) => Math.max(m, Number(String(p.id).replace(/\D/g, '')) || 0), 0) + 1),
-      name, initials, color: palette[db.people.length % palette.length], email, password,
+      name, initials, color: palette[db.people.length % palette.length], email,
+      password: hashPassword(password),   // Phase 4: never store plaintext
     };
     db.people.push(person);
     saveDbSync();
@@ -537,6 +695,12 @@ async function handleApi(req, res, url) {
         const q = url.searchParams.get('q').toLowerCase();
         list = list.filter(t => t.name.toLowerCase().includes(q) || t.id.toLowerCase().includes(q));
       }
+      /* Phase 4: optional pagination — ?limit=&offset= returns a page object. */
+      if (url.searchParams.has('limit') || url.searchParams.has('offset')) {
+        const limit  = Math.min(500, Math.max(1, Number(url.searchParams.get('limit'))  || 25));
+        const offset = Math.max(0, Number(url.searchParams.get('offset')) || 0);
+        return send(res, 200, { total: list.length, limit, offset, items: list.slice(offset, offset + limit) });
+      }
       return send(res, 200, list);
     }
     if (method === 'POST' && !param) {
@@ -557,22 +721,36 @@ async function handleApi(req, res, url) {
         });
       } catch (e) { return send(res, 400, { error: e.message }); }
       db.tasks.unshift(task);   // newest first — matches the frontend's unshift()
+      upsertTaskRow(task);      // mirror immediately (no debounce window)
       saveDb();
       return send(res, 201, task);
     }
     const idx = db.tasks.findIndex(t => t.id === param);
     if (idx === -1) {
       // also accept the stable numeric key used by frontend deep links (#/task/:idx)
-      const byIdx = db.tasks.findIndex(t => t.idx === Number(param));
+      const byIdx = /^\d+$/.test(param) ? db.tasks.findIndex(t => t.idx === Number(param)) : -1;
       if (byIdx !== -1) {
         if (method === 'GET') return send(res, 200, db.tasks[byIdx]);
         if (method === 'PATCH' || method === 'PUT') {
           const b = await readBody(req);
           try { db.tasks[byIdx] = sanitizeTask(b, db.tasks[byIdx]); }
           catch (e) { return send(res, 400, { error: e.message }); }
+          upsertTaskRow(db.tasks[byIdx]);
           saveDb();
           return send(res, 200, db.tasks[byIdx]);
         }
+        if (method === 'DELETE') {
+          const [removed] = db.tasks.splice(byIdx, 1);
+          Object.values(db.prefsByUser).forEach(pr => { pr.savedIds = pr.savedIds.filter(id => id !== removed.id); });
+          softDeleteTaskRow(removed.id);
+          saveDb();
+          return send(res, 200, { deleted: true, id: removed.id });
+        }
+      }
+      /* Soft-deleted rows stay in SQLite but are invisible to normal reads. */
+      if (method === 'GET') {
+        const gone = sqliteDeletedRow(param);
+        if (gone) return send(res, 410, { error: 'task deleted', id: gone.id, deletedAt: gone.deleted_at });
       }
       return send(res, 404, { error: 'task not found' });
     }
@@ -582,12 +760,14 @@ async function handleApi(req, res, url) {
       try {
         db.tasks[idx] = sanitizeTask(b, db.tasks[idx]);
       } catch (e) { return send(res, 400, { error: e.message }); }
+      upsertTaskRow(db.tasks[idx]);
       saveDb();
       return send(res, 200, db.tasks[idx]);
     }
     if (method === 'DELETE') {
       const [removed] = db.tasks.splice(idx, 1);
       Object.values(db.prefsByUser).forEach(pr => { pr.savedIds = pr.savedIds.filter(id => id !== removed.id); });
+      softDeleteTaskRow(removed.id);   // recoverable row kept in SQLite
       saveDb();
       return send(res, 200, { deleted: true, id: removed.id });
     }

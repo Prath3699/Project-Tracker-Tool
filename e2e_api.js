@@ -9,6 +9,13 @@ const EXE = '/root/.cache/ms-playwright/chromium_headless_shell-1234/chrome-head
   const fail = []; const ok = [];
   const check = (name, cond) => (cond ? ok : fail).push(name);
 
+  // Phase 2: sign in before touching the workspace (demo account)
+  await page.goto('http://localhost:3000/');
+  await page.waitForSelector('#login-form', { timeout: 8000 });
+  await page.fill('#login-email', 'parth@catlas.inc');
+  await page.fill('#login-password', 'password');
+  await page.click('#login-submit');
+  await page.waitForSelector('.task-table tbody tr', { timeout: 8000 });
   await page.goto('http://localhost:3000/');
   await page.waitForSelector('.task-table tbody tr', { timeout: 8000 }).catch(() => {});
   check('boot-loading removed', !(await page.$('#boot-loading')));
