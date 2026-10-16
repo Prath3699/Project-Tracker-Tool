@@ -522,6 +522,7 @@ button.pill.urgency-cell:focus-visible { outline: 2px solid var(--accent); outli
 
 .assignee { display: flex; align-items: center; gap: 10px; }
 .assignee-name { font-size: 13px; color: var(--text-2); }
+.comment-count { font-size: 12px; color: var(--text-3, var(--text-2)); white-space: nowrap; }
 
 /* ======================= PROPERTIES PANEL ======================= */
 .properties {

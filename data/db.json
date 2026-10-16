@@ -1,13 +1,13 @@
 {
   "meta": {
-    "nextTaskNum": 106,
-    "nextIdx": 1006
+    "nextTaskNum": 103,
+    "nextIdx": 1003
   },
   "people": [
     {
       "id": "p1",
-      "name": "Priya Sharma",
-      "initials": "PS",
+      "name": "Parth Sharma",
+      "initials": "PT",
       "color": "#43b3ff"
     },
     {
@@ -103,48 +103,37 @@
   ],
   "tasks": [
     {
-      "id": "TSK-105",
-      "name": "Enhance Search Functionality",
+      "id": "TSK-102",
+      "name": "E2E API Task",
       "progress": "Ongoing",
       "urgency": "Critical",
       "assignee": "p2",
       "project": "q3-plan",
-      "comments": 6,
-      "idx": 1005,
-      "createdAt": "2026-10-13T17:55:41.750Z"
-    },
-    {
-      "id": "TSK-8",
-      "name": "Improve Navigation & Menu Organization",
-      "progress": "Ongoing",
-      "urgency": "Moderate",
-      "assignee": "p3",
-      "comments": 0,
-      "project": "q3-plan",
-      "idx": 0,
-      "createdAt": "2026-10-13T17:53:45.098Z"
+      "comments": 1,
+      "idx": 1002,
+      "createdAt": "2026-10-16T12:48:19.738Z"
     },
     {
       "id": "TSK-101",
-      "name": "E2E API Task",
-      "progress": "Ongoing",
-      "urgency": "Critical",
-      "assignee": "p2",
+      "name": "Improve Navigation & Menu Organization",
+      "progress": "In review",
+      "urgency": "Moderate",
+      "assignee": "p3",
       "project": "q3-plan",
-      "comments": 1,
+      "comments": 0,
       "idx": 1001,
-      "createdAt": "2026-10-13T17:54:42.087Z"
+      "createdAt": "2026-10-16T12:48:14.153Z"
     },
     {
-      "id": "TSK-100",
-      "name": "E2E API Task",
-      "progress": "Ongoing",
+      "id": "TSK-20",
+      "name": "Enhance Search Functionality",
+      "progress": "Completed",
       "urgency": "Critical",
       "assignee": "p2",
+      "comments": 6,
       "project": "q3-plan",
-      "comments": 1,
-      "idx": 1000,
-      "createdAt": "2026-10-13T17:54:06.420Z"
+      "idx": 1,
+      "createdAt": "2026-10-16T12:48:10.068Z"
     },
     {
       "id": "TSK-22",
@@ -155,7 +144,7 @@
       "comments": 0,
       "project": "q3-plan",
       "idx": 2,
-      "createdAt": "2026-10-13T17:53:45.098Z"
+      "createdAt": "2026-10-16T12:48:10.068Z"
     },
     {
       "id": "TSK-6",
@@ -166,7 +155,7 @@
       "comments": 0,
       "project": "q3-plan",
       "idx": 3,
-      "createdAt": "2026-10-13T17:53:45.098Z"
+      "createdAt": "2026-10-16T12:48:10.068Z"
     },
     {
       "id": "TSK-6b",
@@ -177,7 +166,7 @@
       "comments": 0,
       "project": "q3-plan",
       "idx": 4,
-      "createdAt": "2026-10-13T17:53:45.098Z"
+      "createdAt": "2026-10-16T12:48:10.068Z"
     },
     {
       "id": "TSK-10",
@@ -188,7 +177,7 @@
       "comments": 0,
       "project": "q3-plan",
       "idx": 5,
-      "createdAt": "2026-10-13T17:53:45.098Z"
+      "createdAt": "2026-10-16T12:48:10.068Z"
     },
     {
       "id": "TSK-40",
@@ -199,7 +188,7 @@
       "comments": 0,
       "project": "q3-plan",
       "idx": 6,
-      "createdAt": "2026-10-13T17:53:45.098Z"
+      "createdAt": "2026-10-16T12:48:10.068Z"
     },
     {
       "id": "TSK-12",
@@ -210,7 +199,7 @@
       "comments": 0,
       "project": "q3-plan",
       "idx": 7,
-      "createdAt": "2026-10-13T17:53:45.098Z"
+      "createdAt": "2026-10-16T12:48:10.068Z"
     },
     {
       "id": "TSK-18",
@@ -221,7 +210,7 @@
       "comments": 4,
       "project": "q3-plan",
       "idx": 8,
-      "createdAt": "2026-10-13T17:53:45.098Z"
+      "createdAt": "2026-10-16T12:48:10.068Z"
     },
     {
       "id": "TSK-12b",
@@ -232,7 +221,7 @@
       "comments": 1,
       "project": "q3-plan",
       "idx": 9,
-      "createdAt": "2026-10-13T17:53:45.098Z"
+      "createdAt": "2026-10-16T12:48:10.068Z"
     },
     {
       "id": "TSK-12c",
@@ -243,7 +232,7 @@
       "comments": 0,
       "project": "q3-plan",
       "idx": 10,
-      "createdAt": "2026-10-13T17:53:45.098Z"
+      "createdAt": "2026-10-16T12:48:10.068Z"
     },
     {
       "id": "TSK-22b",
@@ -254,7 +243,7 @@
       "comments": 4,
       "project": "q3-plan",
       "idx": 11,
-      "createdAt": "2026-10-13T17:53:45.098Z"
+      "createdAt": "2026-10-16T12:48:10.068Z"
     },
     {
       "id": "TSK-14",
@@ -265,7 +254,7 @@
       "comments": 0,
       "project": "q3-plan",
       "idx": 12,
-      "createdAt": "2026-10-13T17:53:45.098Z"
+      "createdAt": "2026-10-16T12:48:10.068Z"
     },
     {
       "id": "TSK-27",
@@ -276,7 +265,7 @@
       "comments": 0,
       "project": "q3-plan",
       "idx": 13,
-      "createdAt": "2026-10-13T17:53:45.098Z"
+      "createdAt": "2026-10-16T12:48:10.068Z"
     },
     {
       "id": "TSK-18b",
@@ -287,7 +276,7 @@
       "comments": 3,
       "project": "q3-plan",
       "idx": 14,
-      "createdAt": "2026-10-13T17:53:45.098Z"
+      "createdAt": "2026-10-16T12:48:10.068Z"
     },
     {
       "id": "TSK-31",
@@ -298,7 +287,7 @@
       "comments": 0,
       "project": "q3-plan",
       "idx": 15,
-      "createdAt": "2026-10-13T17:53:45.098Z"
+      "createdAt": "2026-10-16T12:48:10.068Z"
     },
     {
       "id": "TSK-33",
@@ -309,7 +298,7 @@
       "comments": 0,
       "project": "q3-plan",
       "idx": 16,
-      "createdAt": "2026-10-13T17:53:45.098Z"
+      "createdAt": "2026-10-16T12:48:10.068Z"
     },
     {
       "id": "TSK-50",
@@ -320,7 +309,7 @@
       "comments": 0,
       "project": "website-redesign",
       "idx": 500,
-      "createdAt": "2026-10-13T17:53:45.099Z"
+      "createdAt": "2026-10-16T12:48:10.068Z"
     },
     {
       "id": "TSK-51",
@@ -331,7 +320,7 @@
       "comments": 0,
       "project": "website-redesign",
       "idx": 501,
-      "createdAt": "2026-10-13T17:53:45.099Z"
+      "createdAt": "2026-10-16T12:48:10.068Z"
     },
     {
       "id": "TSK-52",
@@ -342,7 +331,7 @@
       "comments": 0,
       "project": "mobile-app-v2",
       "idx": 502,
-      "createdAt": "2026-10-13T17:53:45.099Z"
+      "createdAt": "2026-10-16T12:48:10.069Z"
     },
     {
       "id": "TSK-53",
@@ -353,7 +342,7 @@
       "comments": 0,
       "project": "mobile-app-v2",
       "idx": 503,
-      "createdAt": "2026-10-13T17:53:45.099Z"
+      "createdAt": "2026-10-16T12:48:10.069Z"
     },
     {
       "id": "TSK-54",
@@ -364,7 +353,7 @@
       "comments": 0,
       "project": "api-docs",
       "idx": 504,
-      "createdAt": "2026-10-13T17:53:45.099Z"
+      "createdAt": "2026-10-16T12:48:10.069Z"
     },
     {
       "id": "TSK-55",
@@ -375,7 +364,7 @@
       "comments": 0,
       "project": "api-docs",
       "idx": 505,
-      "createdAt": "2026-10-13T17:53:45.099Z"
+      "createdAt": "2026-10-16T12:48:10.069Z"
     },
     {
       "id": "TSK-56",
@@ -386,7 +375,7 @@
       "comments": 0,
       "project": "customer-portal",
       "idx": 506,
-      "createdAt": "2026-10-13T17:53:45.099Z"
+      "createdAt": "2026-10-16T12:48:10.069Z"
     },
     {
       "id": "TSK-57",
@@ -397,7 +386,7 @@
       "comments": 0,
       "project": "customer-portal",
       "idx": 507,
-      "createdAt": "2026-10-13T17:53:45.099Z"
+      "createdAt": "2026-10-16T12:48:10.069Z"
     },
     {
       "id": "TSK-58",
@@ -408,7 +397,7 @@
       "comments": 0,
       "project": "internal-tools",
       "idx": 508,
-      "createdAt": "2026-10-13T17:53:45.099Z"
+      "createdAt": "2026-10-16T12:48:10.069Z"
     },
     {
       "id": "TSK-59",
@@ -419,7 +408,7 @@
       "comments": 0,
       "project": "internal-tools",
       "idx": 509,
-      "createdAt": "2026-10-13T17:53:45.099Z"
+      "createdAt": "2026-10-16T12:48:10.069Z"
     }
   ],
   "inbox": [
@@ -432,18 +421,18 @@
       "ago": 600000,
       "task": "TSK-20",
       "unread": true,
-      "at": "2026-10-13T17:43:45.099Z"
+      "at": "2026-10-16T12:38:10.069Z"
     },
     {
       "id": "inbox-2",
-      "who": "Priya Sharma",
-      "initials": "PS",
+      "who": "Parth Sharma",
+      "initials": "PT",
       "color": "#43b3ff",
       "text": "assigned you “Dark Mode Implementation”",
       "ago": 1920000,
       "task": "TSK-22",
       "unread": true,
-      "at": "2026-10-13T17:21:45.099Z"
+      "at": "2026-10-16T12:16:10.069Z"
     },
     {
       "id": "inbox-3",
@@ -454,7 +443,7 @@
       "ago": 3600000,
       "task": "TSK-18",
       "unread": true,
-      "at": "2026-10-13T16:53:45.099Z"
+      "at": "2026-10-16T11:48:10.069Z"
     },
     {
       "id": "inbox-4",
@@ -465,7 +454,7 @@
       "ago": 10800000,
       "task": "TSK-6",
       "unread": false,
-      "at": "2026-10-13T14:53:45.099Z"
+      "at": "2026-10-16T09:48:10.069Z"
     },
     {
       "id": "inbox-5",
@@ -476,7 +465,7 @@
       "ago": 93600000,
       "task": "TSK-18b",
       "unread": false,
-      "at": "2026-10-12T15:53:45.099Z"
+      "at": "2026-10-15T10:48:10.069Z"
     },
     {
       "id": "inbox-6",
@@ -487,37 +476,28 @@
       "ago": 100800000,
       "task": "TSK-6b",
       "unread": false,
-      "at": "2026-10-12T13:53:45.099Z"
+      "at": "2026-10-15T08:48:10.069Z"
     },
     {
       "id": "inbox-7",
-      "who": "Priya Sharma",
-      "initials": "PS",
+      "who": "Parth Sharma",
+      "initials": "PT",
       "color": "#43b3ff",
       "text": "shared the project “Q3 Plan” with you",
       "ago": 172800000,
       "task": null,
       "unread": false,
-      "at": "2026-10-11T17:53:45.099Z"
+      "at": "2026-10-14T12:48:10.069Z"
     }
   ],
   "discussions": {
-    "TSK-100": [
+    "TSK-102": [
       {
-        "who": "Priya Sharma",
-        "initials": "PS",
+        "who": "Parth Sharma",
+        "initials": "PT",
         "color": "#43b3ff",
         "text": "e2e comment",
-        "at": "2026-10-13T17:54:06.971Z"
-      }
-    ],
-    "TSK-101": [
-      {
-        "who": "Priya Sharma",
-        "initials": "PS",
-        "color": "#43b3ff",
-        "text": "e2e comment",
-        "at": "2026-10-13T17:54:42.636Z"
+        "at": "2026-10-16T12:48:20.306Z"
       }
     ]
   },
@@ -545,31 +525,24 @@
         "time": "09:18"
       },
       {
-        "who": "Priya Sharma",
-        "initials": "PS",
-        "color": "#43b3ff",
-        "text": "e2e chat msg",
-        "time": "17:54"
-      },
-      {
-        "who": "Priya Sharma",
-        "initials": "PS",
-        "color": "#43b3ff",
-        "text": "e2e chat msg",
-        "time": "17:54"
-      },
-      {
         "who": "You",
         "initials": "YO",
         "color": "#43b3ff",
         "text": "hello from backend test",
-        "time": "17:55"
+        "time": "12:48"
+      },
+      {
+        "who": "Parth Sharma",
+        "initials": "PT",
+        "color": "#43b3ff",
+        "text": "e2e chat msg",
+        "time": "12:48"
       }
     ],
     "docs": [
       {
-        "who": "Priya Sharma",
-        "initials": "PS",
+        "who": "Parth Sharma",
+        "initials": "PT",
         "color": "#43b3ff",
         "text": "PRD.docx updated with the new accessibility section.",
         "time": "11:02"
@@ -618,8 +591,8 @@
     ],
     "design": [
       {
-        "who": "Priya Sharma",
-        "initials": "PS",
+        "who": "Parth Sharma",
+        "initials": "PT",
         "color": "#43b3ff",
         "text": "Dark mode tokens are in Figma — feedback welcome.",
         "time": "13:10"
@@ -636,7 +609,7 @@
     ]
   },
   "savedIds": [
-    "TSK-8"
+    "TSK-102"
   ],
   "readFlags": {
     "inbox-1": true

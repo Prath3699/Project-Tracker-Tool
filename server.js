@@ -25,7 +25,7 @@ const PORT = Number(process.argv[2] || process.env.PORT || 3000);
 
 function seedData() {
   const people = [
-    { id: 'p1', name: 'Priya Sharma', initials: 'PS', color: '#43b3ff' },
+    { id: 'p1', name: 'Parth Sharma', initials: 'PT', color: '#43b3ff' },
     { id: 'p2', name: 'David Lee',    initials: 'DL', color: '#ffa575' },
     { id: 'p3', name: 'Maya Chen',    initials: 'MC', color: '#7b60ff' },
     { id: 'p4', name: 'Alex Kim',     initials: 'AK', color: '#3eb957' },
@@ -85,12 +85,12 @@ function seedData() {
   const now = Date.now();
   const inbox = [
     { id: 'inbox-1', who: 'David Lee',    initials: 'DL', color: '#ffa575', text: 'mentioned you in “Enhance Search Functionality”',            ago: 10 * 60e3,      task: 'TSK-20',  unread: true  },
-    { id: 'inbox-2', who: 'Priya Sharma', initials: 'PS', color: '#43b3ff', text: 'assigned you “Dark Mode Implementation”',                    ago: 32 * 60e3,      task: 'TSK-22',  unread: true  },
+    { id: 'inbox-2', who: 'Parth Sharma', initials: 'PT', color: '#43b3ff', text: 'assigned you “Dark Mode Implementation”',                    ago: 32 * 60e3,      task: 'TSK-22',  unread: true  },
     { id: 'inbox-3', who: 'Maya Chen',    initials: 'MC', color: '#7b60ff', text: 'completed “Introduce AI-powered Task Prioritization”',       ago: 60 * 60e3,      task: 'TSK-18',  unread: true  },
     { id: 'inbox-4', who: 'Alex Kim',     initials: 'AK', color: '#3eb957', text: 'commented on “Optimize Mobile Responsiveness”',              ago: 3 * 3600e3,     task: 'TSK-6',   unread: false },
     { id: 'inbox-5', who: 'Sara Noor',    initials: 'SN', color: '#db672d', text: 'requested review of “Data Encryption for Sensitive Information”', ago: 26 * 3600e3, task: 'TSK-18b', unread: false },
     { id: 'inbox-6', who: 'David Lee',    initials: 'DL', color: '#ffa575', text: 'changed urgency of “Redesign Checkout Flow” to Critical',    ago: 28 * 3600e3,    task: 'TSK-6b',  unread: false },
-    { id: 'inbox-7', who: 'Priya Sharma', initials: 'PS', color: '#43b3ff', text: 'shared the project “Q3 Plan” with you',                      ago: 48 * 3600e3,    task: null,    unread: false },
+    { id: 'inbox-7', who: 'Parth Sharma', initials: 'PT', color: '#43b3ff', text: 'shared the project “Q3 Plan” with you',                      ago: 48 * 3600e3,    task: null,    unread: false },
   ].map(it => ({ ...it, at: new Date(now - it.ago).toISOString() }));
 
   const channelMessages = {
@@ -100,7 +100,7 @@ function seedData() {
       { who: 'Alex Kim',  initials: 'AK', color: '#3eb957', text: 'None so far. QA signed off on mobile responsiveness too.',  time: '09:18' },
     ],
     docs: [
-      { who: 'Priya Sharma', initials: 'PS', color: '#43b3ff', text: 'PRD.docx updated with the new accessibility section.', time: '11:02' },
+      { who: 'Parth Sharma', initials: 'PT', color: '#43b3ff', text: 'PRD.docx updated with the new accessibility section.', time: '11:02' },
       { who: 'David Lee',    initials: 'DL', color: '#ffa575', text: 'I’ll add the API examples before Friday.',             time: '11:20' },
     ],
     teams:       [{ who: 'Sara Noor', initials: 'SN', color: '#db672d', text: 'Reminder: retro at 4 pm in the big room.', time: '10:00' }],
@@ -109,7 +109,7 @@ function seedData() {
       { who: 'Maya Chen', initials: 'MC', color: '#7b60ff', text: 'Standup notes: TSK-20 done, TSK-22 in review.',        time: '09:30' },
       { who: 'Alex Kim',  initials: 'AK', color: '#3eb957', text: 'Blocker: need designs for the checkout flow revamp.',  time: '09:32' },
     ],
-    design:    [{ who: 'Priya Sharma', initials: 'PS', color: '#43b3ff', text: 'Dark mode tokens are in Figma — feedback welcome.', time: '13:10' }],
+    design:    [{ who: 'Parth Sharma', initials: 'PT', color: '#43b3ff', text: 'Dark mode tokens are in Figma — feedback welcome.', time: '13:10' }],
     marketing: [{ who: 'Sara Noor',    initials: 'SN', color: '#db672d', text: 'Launch blog draft is ready for engineering review.', time: '15:40' }],
   };
 
