@@ -1137,7 +1137,7 @@ html.dark .mt-seg-btn.active { box-shadow: 0 1px 4px rgba(0,0,0,.4); }
   align-items: center; justify-content: center; padding: 24px;
   background: linear-gradient(160deg, #0f1c30 0%, #1b2a4a 55%, #223a63 100%); }
 body.show-login .login-screen { display: flex; }
-body.show-login .app-shell, body.show-login header.topbar { visibility: hidden; }
+body.show-login .app-shell, body.show-login header.topbar, body.show-login .bottom-tabs { visibility: hidden; }
 .login-card { width: 100%; max-width: 380px; background: #fff; border-radius: 16px;
   padding: 28px 26px; box-shadow: 0 24px 60px rgba(0,0,0,.45); }
 .login-brand { text-align: center; margin-bottom: 18px; }
@@ -1355,3 +1355,46 @@ html.dark .nav-item:focus-visible, html.dark a:focus-visible { outline-color: #9
 
 /* Dark mode adjustments for mobile pieces */
 html.dark .sidebar { box-shadow: 4px 0 24px rgba(0,0,0,.5); }
+
+/* ============================ ROADMAP QUARTER FILTERS ============================ */
+.rm-filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
+.rm-chipf { appearance: none; border: 1px solid var(--border); background: var(--surface);
+  color: var(--text-2, inherit); padding: 6px 14px; border-radius: 999px; font-size: 13px;
+  font-weight: 600; cursor: pointer; transition: all .18s ease; }
+.rm-chipf:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-1px); }
+.rm-chipf.on { background: var(--accent); border-color: var(--accent); color: #fff;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 35%, transparent); }
+html.dark .rm-chipf { background: var(--surface-2, #1c2740); color: #cbd6ea; }
+html.dark .rm-chipf.on { color: #fff; }
+
+/* ============================ SETTINGS AVATAR RING + PRESENCE ============================ */
+.st-avatar-wrap { position: relative; display: inline-flex; border-radius: 50%; padding: 4px;
+  background: conic-gradient(from 210deg, var(--accent), #a78bfa, #34d399, var(--accent));
+  animation: st-ring-spin 8s linear infinite; }
+.st-avatar-wrap .avatar-lg { box-shadow: 0 0 0 3px var(--surface); }
+.st-presence { position: absolute; right: 2px; bottom: 2px; width: 13px; height: 13px;
+  border-radius: 50%; background: #22c55e; border: 2.5px solid var(--surface);
+  box-shadow: 0 0 0 1px rgba(0,0,0,.08); }
+@keyframes st-ring-spin { to { filter: hue-rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .st-avatar-wrap { animation: none; } }
+
+/* ============================ MOBILE BOTTOM TAB BAR ============================ */
+.bottom-tabs { display: none; }
+@media (max-width: 820px) {
+  .bottom-tabs { display: grid; grid-template-columns: repeat(5, 1fr); position: fixed;
+    left: 0; right: 0; bottom: 0; z-index: 120; background: var(--surface);
+    border-top: 1px solid var(--border); padding-bottom: env(safe-area-inset-bottom);
+    box-shadow: 0 -6px 24px rgba(10,20,40,.12); }
+  html.dark .bottom-tabs { background: #141d33; box-shadow: 0 -6px 24px rgba(0,0,0,.5); }
+  .bt-item { display: flex; flex-direction: column; align-items: center; gap: 2px;
+    padding: 8px 4px 6px; font-size: 10.5px; font-weight: 600; color: var(--muted, #6b7a93);
+    text-decoration: none; border-radius: 10px; transition: color .15s ease; }
+  .bt-ico { font-size: 19px; line-height: 1.15; filter: grayscale(.35); transition: filter .15s ease, transform .15s ease; }
+  .bt-item.active { color: var(--accent); }
+  .bt-item.active .bt-ico { filter: none; transform: translateY(-1px); }
+  html.dark .bt-item { color: #8b9ab5; }
+  html.dark .bt-item.active { color: #6fb4ff; }
+  /* keep content clear of the fixed bar */
+  .app-shell main, .page-pad { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+  body.show-login .bottom-tabs { visibility: hidden; }
+}

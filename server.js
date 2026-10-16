@@ -15,7 +15,10 @@ const path = require('path');
 const crypto = require('crypto');
 
 const ROOT = __dirname;
-const DATA_DIR = path.join(ROOT, 'data');
+/* Durable storage location. On Render's free tier the container filesystem is
+ * ephemeral, so render.yaml mounts a persistent Disk at /var/data and sets
+ * TASKHIVE_DATA_DIR accordingly. Locally it defaults to ./data. */
+const DATA_DIR = process.env.TASKHIVE_DATA_DIR || path.join(ROOT, 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');   // fallback store (no SQLite driver)
 const SQLITE_FILE = path.join(DATA_DIR, 'taskhive.db'); // durable store (Phase 4)
 const PORT = Number(process.argv[2] || process.env.PORT || 3000);
@@ -60,7 +63,7 @@ function verifyPassword(pw, stored) {
 
 function seedData() {
   const people = [
-    { id: 'p1', name: 'Parth Sharma', initials: 'PT', color: '#43b3ff', email: 'parth@catlas.inc',   password: hashPassword(DEMO_PASSWORD) },
+    { id: 'p1', name: 'Parth Sharma', initials: 'PT', color: '#43b3ff', email: 'parth@catlas.inc',   password: hashPassword(DEMO_PASSWORD), role: 'admin' },
     { id: 'p2', name: 'David Lee',    initials: 'DL', color: '#ffa575', email: 'david@catlas.inc',   password: hashPassword(DEMO_PASSWORD) },
     { id: 'p3', name: 'Maya Chen',    initials: 'MC', color: '#7b60ff', email: 'maya@catlas.inc',    password: hashPassword(DEMO_PASSWORD) },
     { id: 'p4', name: 'Alex Kim',     initials: 'AK', color: '#3eb957', email: 'alex@catlas.inc',    password: hashPassword(DEMO_PASSWORD) },
@@ -299,6 +302,9 @@ function migrate(d) {
     if (!p.password) p.password = hashPassword(DEMO_PASSWORD);
     else if (!String(p.password).startsWith('sc$')) p.password = hashPassword(String(p.password));
   });
+  /* Backfill: the first member is the workspace admin (needed for /api/import);
+   * existing databases created before roles existed get upgraded additively. */
+  if (d.people[0] && !d.people.some(p => p.role === 'admin')) d.people[0].role = 'admin';
   return d;
 }
 
@@ -516,6 +522,24 @@ async function handleApi(req, res, url) {
       'Content-Type': 'application/json; charset=utf-8',
       'Content-Disposition': `attachment; filename="taskhive-backup-${stamp}.json"`,
     }, body);
+  }
+
+  /* --- import: restore a JSON snapshot produced by /api/export (admin auth) ---
+   * Lets a deploy with an ephemeral disk be re-seeded after restarts, or move
+   * data between hosts. Body must be the exact export format ({version, db}). */
+  if (routeKey === 'import' && method === 'POST') {
+    if (!user) return send(res, 401, { error: 'authentication required' });
+    if (user.role !== 'admin') return send(res, 403, { error: 'admin role required for import' });
+    let b;
+    try { b = await readBody(req); } catch (e) { return send(res, 400, { error: e.message }); }
+    const incoming = (b && b.db) ? b.db : b;   // accept wrapped or bare db object
+    if (!incoming || !Array.isArray(incoming.tasks) || !Array.isArray(incoming.people)) {
+      return send(res, 400, { error: 'invalid snapshot: expected an export JSON with tasks[] and people[]' });
+    }
+    try { migrate(incoming); } catch (e) { return send(res, 400, { error: 'snapshot failed validation: ' + e.message }); }
+    db = incoming;
+    saveDbSync();          // durable write + SQLite mirror sync
+    return send(res, 200, { ok: true, tasks: db.tasks.length, people: db.people.length });
   }
 
   /* --- purge: permanently remove soft-deleted task rows (auth only) --- */

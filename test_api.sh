@@ -99,9 +99,29 @@ echo "== purge without auth (expect 401) =="
 chk "401 purge unauth" 401 "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/purge)"
 
 echo "== purge with auth (expect 200 ok:true) =="
-chk "200 purge auth" 200 "$(curl -s -b $JAR -o /dev/null -w '%{http_code}' -X POST $B/purge)"
-PURGE_OK=$(curl -s -b $JAR -X POST $B/purge | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);process.exit(j.ok&&typeof j.purged==='number'?0:1)})" 2>/dev/null; echo $?)
-if [ "$PURGE_OK" = "0" ]; then PASS=$((PASS+1)); echo "ok   purge response shape"; else FAIL=$((FAIL+1)); echo "FAIL purge response shape"; fi
+PURGE=$(curl -s -b $JAR -X POST $B/purge | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);process.exit(j.ok&&typeof j.purged==='number'?0:1)})" 2>/dev/null; echo $?)
+if [ "$PURGE" = "0" ]; then PASS=$((PASS+1)); echo "ok   purge response shape"; else FAIL=$((FAIL+1)); echo "FAIL purge response shape"; fi
+
+echo "== export snapshot (expect tasks[] + people[]) =="
+EXP=/tmp/th_export.json
+curl -s -b $JAR $B/export -o $EXP
+chk "export has tasks+people" 0 "$(node -e "const j=require('$EXP');process.exit(Array.isArray(j.db.tasks)&&Array.isArray(j.db.people)?0:1)" 2>/dev/null; echo $?)"
+
+echo "== import without auth (expect 401) =="
+chk "401 import unauth" 401 "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/import -H 'Content-Type: application/json' -d @- < $EXP)"
+
+echo "== import invalid body (expect 400) =="
+chk "400 import bad body" 400 "$(curl -s -b $JAR -o /dev/null -w '%{http_code}' -X POST $B/import -H 'Content-Type: application/json' -d '{"nope":true}')"
+
+echo "== import as non-admin (expect 403) =="
+JAR2=/tmp/th_jar2.txt
+curl -s -c $JAR2 -o /dev/null -X POST $B/login -d '{"email":"david@catlas.inc","password":"password"}'
+chk "403 import non-admin" 403 "$(curl -s -b $JAR2 -o /dev/null -w '%{http_code}' -X POST $B/import -H 'Content-Type: application/json' -d @- < $EXP)"
+
+echo "== import snapshot as admin (expect 200, data restored) =="
+IMP=$(curl -s -b $JAR -X POST $B/import -H 'Content-Type: application/json' -d @- < $EXP | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);process.exit(j.ok&&j.tasks>0?0:1)})" 2>/dev/null; echo $?)
+if [ "$IMP" = "0" ]; then PASS=$((PASS+1)); echo "ok   import restores snapshot"; else FAIL=$((FAIL+1)); echo "FAIL import restores snapshot"; fi
+chk "bootstrap works after import" 200 "$(curl -s -b $JAR -o /dev/null -w '%{http_code}' $B/bootstrap)"
 
 echo "== logout clears cookie =="
 chk "200 logout" 200 "$(curl -s -b $JAR -o /dev/null -w '%{http_code}' -X POST $B/logout)"
