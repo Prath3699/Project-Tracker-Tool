@@ -1192,21 +1192,116 @@ routes.calendar = () => {
 
 routes.roadmaps = () => {
   setCrumbs([{ label: 'Workspace' }, { label: 'Roadmaps' }]);
-  const phases = [
-    { q: 'Q1', label: 'Foundation', pct: 100 }, { q: 'Q2', label: 'Growth', pct: 100 },
-    { q: 'Q3', label: 'Q3 Plan', pct: 55 }, { q: 'Q4', label: 'Scale', pct: 10 },
+
+  /* ---- Live stats from real tasks ---- */
+  const doneAll   = TASKS.filter(t => t.progress === 'Completed').length;
+  const inrevAll  = TASKS.filter(t => t.progress === 'In review').length;
+  const ongoAll   = TASKS.filter(t => t.progress === 'Ongoing').length;
+  const pendAll   = TASKS.filter(t => t.progress === 'Pending' || t.progress === 'On hold').length;
+  const total     = TASKS.length || 1;
+  const overall   = Math.round(((doneAll + inrevAll * 0.6 + ongoAll * 0.3) / total) * 100);
+  const critical  = TASKS.filter(t => t.urgency === 'Critical' && t.progress !== 'Completed').length;
+  const atRisk    = TASKS.filter(t => (t.progress === 'Pending' || t.progress === 'On hold') && t.urgency === 'Critical').length;
+  const health    = atRisk > 2 ? 'At Risk' : overall >= 60 ? 'On Track' : 'Needs Attention';
+  const healthCls = atRisk > 2 ? 'warn' : overall >= 60 ? 'good' : 'mid';
+  const teamCnt   = new Set(TASKS.map(t => t.assignee)).size;
+
+  /* ---- Phases derived from live project data (last two projects = upcoming quarters) ---- */
+  const PHASE_META = [
+    { q: 'Q1', tag: 'Foundation', icon: '🧱' },
+    { q: 'Q2', tag: 'Growth',     icon: '📈' },
+    { q: 'Q3', tag: 'Delivery',   icon: '🚀' },
+    { q: 'Q4', tag: 'Scale',      icon: '🌐' },
   ];
+  const projPct = (pr) => {
+    const ts = TASKS.filter(t => t.project === pr.id);
+    if (!ts.length) return 0;
+    const d = ts.filter(t => t.progress === 'Completed').length;
+    const r = ts.filter(t => t.progress === 'In review').length;
+    const o = ts.filter(t => t.progress === 'Ongoing').length;
+    return Math.round(((d + r * 0.6 + o * 0.3) / ts.length) * 100);
+  };
+  const phases = PROJECTS.slice(0, 2).map((pr, i) => ({ ...PHASE_META[i], pr, pct: 100 }));
+  const upcoming = PROJECTS.slice(2).map((pr, i) => ({ ...PHASE_META[Math.min(2 + i, 3)], pr, pct: projPct(pr) }));
+
+  const statusBadge = (p) => {
+    const map = { Completed: ['✓ Done', 'ev-green'], 'In review': ['👁 Review', 'ev-blue'], Ongoing: ['▶ Active', 'ev-purple'], Pending: ['◷ Queued', 'ev-gray'], 'On hold': ['⏸ Hold', 'ev-red'] };
+    const [label, cls] = map[p] || ['—', 'ev-gray'];
+    return `<span class="rm-chip ${cls}">${label}</span>`;
+  };
+  const urgIcon = (u) => u === 'Critical' ? '<span title="Critical priority" aria-label="Critical priority">🔥</span>'
+                     : u === 'Moderate' ? '<span title="Medium priority" aria-label="Medium priority">⚡</span>' : '';
+
+  const phaseCard = (ph, isUpcoming, i = 0) => {
+    const pr = ph.pr;
+    const ts = TASKS.filter(t => t.project === pr.id)
+                    .sort((a, b) => (b.comments || 0) - (a.comments || 0))
+                    .slice(0, 4);
+    const barColor = ph.pct >= 80 ? 'var(--completed)' : ph.pct >= 40 ? 'var(--accent)' : 'var(--moderate)';
+    return `
+      <article class="rm-card${isUpcoming ? ' rm-upcoming' : ''}" style="--i:${i}" data-project="${pr.id}" tabindex="0" role="link" aria-label="Open project ${esc(pr.name)}">
+        <header class="rm-card-head">
+          <div class="rm-badge" aria-hidden="true">${ph.icon}</div>
+          <div class="rm-titles">
+            <div class="rm-kicker">${ph.q} · ${ph.tag}</div>
+            <h3 class="rm-name">${esc(pr.name)}</h3>
+          </div>
+          <div class="rm-ring" style="--ring:${ph.pct}" title="${ph.pct}% complete" aria-label="${ph.pct}% complete">
+            <span>${ph.pct}<em>%</em></span>
+          </div>
+        </header>
+        <div class="bar-track" aria-hidden="true"><div class="bar-fill rm-bar" style="width:${ph.pct}%;background:${barColor}"></div></div>
+        <ul class="rm-list">
+          ${ts.map(t => `
+            <li class="rm-item" data-task="${t.idx ?? t.id}">
+              <span class="rm-dot" aria-hidden="true"></span>
+              <span class="rm-item-name">${urgIcon(t.urgency)} ${esc(t.name)}</span>
+              ${statusBadge(t.progress)}
+              <span class="avatar avatar-xs" style="--a:${(personById(t.assignee) || {}).color || '#999'}" title="${esc((personById(t.assignee) || {}).name || '')}">${(personById(t.assignee) || {}).initials || '?'}</span>
+            </li>`).join('') || '<li class="rm-item muted">No tasks yet — this quarter is a blank canvas ✨</li>'}
+        </ul>
+        <footer class="rm-foot">
+          <span>${TASKS.filter(t => t.project === pr.id).length} tasks</span>
+          <span class="rm-open">Open board →</span>
+        </footer>
+      </article>`;
+  };
+
   return `
-    <section class="page-pad">
-      <div class="page-head"><h1>Roadmaps</h1><p>Strategic timeline across quarters.</p></div>
-      <div class="roadmap">
-        ${phases.map(p => `
-          <button class="rm-phase" data-goto="#/projects">
-            <div class="rm-top"><strong>${p.q}</strong> ${p.label}</div>
-            <div class="bar-track"><div class="bar-fill" style="width:${p.pct}%"></div></div>
-            <span class="rm-pct">${p.pct}% complete</span>
-          </button>`).join('')}
+    <section class="page-pad roadmap-page">
+      <div class="page-head rm-head">
+        <div>
+          <h1>Roadmaps</h1>
+          <p>Strategic timeline across quarters — live from your workspace.</p>
+        </div>
+        <div class="rm-health ${healthCls}" role="status">
+          <span class="rm-pulse" aria-hidden="true"></span>
+          <strong>${health}</strong>
+          <em>${overall}% of the year delivered</em>
+        </div>
       </div>
+
+      <div class="rm-stats" role="list">
+        <div class="rm-stat" role="listitem"><b>${total}</b><span>Total tasks</span></div>
+        <div class="rm-stat good" role="listitem"><b>${doneAll}</b><span>Completed</span></div>
+        <div class="rm-stat amber" role="listitem"><b>${ongoAll + inrevAll}</b><span>In flight</span></div>
+        <div class="rm-stat red" role="listitem"><b>${critical}</b><span>Critical open</span></div>
+        <div class="rm-stat" role="listitem"><b>${teamCnt}</b><span>Contributors</span></div>
+      </div>
+
+      <div class="rm-track" aria-label="Timeline track">
+        <div class="rm-line" aria-hidden="true"></div>
+        ${[...phases, ...upcoming].map((ph, i) => `
+          <div class="rm-node" style="--i:${i}">
+            <span class="rm-node-dot ${i < 2 ? 'done' : ''}" aria-hidden="true"></span>
+          </div>`).join('')}
+      </div>
+
+      <h2 class="rm-section-title">🏁 Shipped &amp; shipping</h2>
+      <div class="rm-grid">${phases.map((p, i) => phaseCard(p, false, i)).join('')}</div>
+
+      <h2 class="rm-section-title">🔮 Upcoming quarters</h2>
+      <div class="rm-grid">${upcoming.map((p, i) => phaseCard(p, true, i + phases.length)).join('')}</div>
     </section>`;
 };
 
@@ -1495,8 +1590,7 @@ document.body.addEventListener('click', (e) => {
       const i = PEOPLE.findIndex(p => p.id === updated.id);
       if (i > -1) PEOPLE[i] = updated; else PEOPLE.push(updated);
       try { localStorage.removeItem(LS_KEY + '.' + ME); } catch (_) {}
-      location.hash = '#/home';
-      render();
+      render(); // stay on Settings — hero card re-renders with the new name
       toast('✔ Settings saved');
     }).catch(err => {
       if (err.status === 401) handleAuthError(err);

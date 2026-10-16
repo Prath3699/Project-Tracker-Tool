@@ -1,3 +1,4 @@
-data/taskhive.db-shm
-data/taskhive.db-wal
-server.out
+*.out
+node_modules/
+*-shm
+*-wal

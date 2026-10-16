@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: taskhive
+    runtime: node
+    plan: free
+    region: oregon
+    rootDir: .
+    buildCommand: npm ci --omit=dev || npm install --omit=dev
+    startCommand: node server.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      # PORT is injected automatically by Render; server.js honours process.env.PORT.
+      # NOTE: the default SQLite file lives under ./data — on Render's free tier the
+      # filesystem is ephemeral, so attach a Disk (render.yaml `disk` below) or move
+      # to Postgres for durable storage on paid plans.
