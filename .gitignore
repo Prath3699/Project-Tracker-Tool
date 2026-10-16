@@ -1,3 +1,2 @@
-data/taskhive.db-shm
-data/taskhive.db-wal
-server.out
+*.db-shm
+*.db-wal
