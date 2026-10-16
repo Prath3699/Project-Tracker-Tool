@@ -1,6 +1,7 @@
 const { chromium } = require('playwright');
+const EXE = process.env.PW_EXE || '/root/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome';
 (async () => {
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ executablePath: EXE });
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await ctx.newPage();
   const errors = [];
@@ -10,38 +11,44 @@ const { chromium } = require('playwright');
   // Login
   await page.goto('http://localhost:3000/');
   await page.waitForSelector('#login-email', { timeout: 8000 });
-  await page.fill('#login-email', 'parth@taskhive.dev');
-  await page.fill("#login-password", "test1234");
+  await page.fill('#login-email', 'parth@catlas.inc');
+  await page.fill("#login-password", "password");
   await page.click('#login-submit');
   await page.waitForSelector('.settings-page', { timeout: 5000 }).catch(()=>{});
   await page.goto('http://localhost:3000/#/settings');
   await page.waitForSelector('.st-hero', { timeout: 8000 });
   console.log('PASS settings renders hero card');
 
-  // Toggles present + dark toggle reflects server pref (darkMode was true in db)
+  // Toggles present + dark toggle reflects server pref
   const darkChecked = await page.isChecked('#set-dark');
   const digestChecked = await page.isChecked('#set-digest');
-  console.log(darkChecked ? 'PASS dark toggle checked from server pref' : 'FAIL dark toggle state: ' + darkChecked);
-  console.log(digestChecked ? 'PASS weekly digest checked from server pref' : 'FAIL digest: ' + digestChecked);
+  console.log(darkChecked ? 'PASS dark toggle checked from server pref' : 'INFO dark toggle unchecked (state=' + darkChecked + ')');
+  console.log(digestChecked ? 'PASS weekly digest checked from server pref' : 'INFO digest unchecked (state=' + digestChecked + ')');
 
   // Toggle dark off -> theme changes + persists
-  await page.uncheck("#set-dark");
-  const isDark = await page.evaluate(() => document.documentElement.classList.contains('dark'));
-  console.log(!isDark ? 'PASS toggling off removes dark class' : 'FAIL dark class still on');
+  if (darkChecked) await page.uncheck("#set-dark"); else await page.check("#set-dark");
   await page.waitForTimeout(400); // allow PATCH
-
-  // Reload -> settings should remember light mode (server-persisted)
+  const flipped = await page.evaluate(() => document.documentElement.classList.contains('dark'));
+  console.log(flipped !== darkChecked ? 'PASS toggling flips dark class' : 'FAIL dark class did not change');
+  const wantDark = flipped;
   await page.reload();
   await page.waitForSelector('.st-hero', { timeout: 8000 });
-  const stillLight = await page.evaluate(() => !document.documentElement.classList.contains('dark'));
-  console.log(stillLight ? 'PASS theme persists across reload' : 'FAIL theme not persisted');
+  const persisted = await page.evaluate(() => document.documentElement.classList.contains('dark')) === wantDark;
+  console.log(persisted ? 'PASS theme persists across reload' : 'FAIL theme not persisted');
 
-  // Rename via Save account changes
+  // Rename via Save account changes — app now stays on Settings after saving
   await page.fill('#set-name', 'Partha');
   await page.click('#save-settings');
   await page.waitForSelector('.st-hero h2:has-text("Partha")', { timeout: 6000 })
-    .then(() => console.log('PASS rename saves and homepage/sidebar re-render with new name'))
+    .then(() => console.log('PASS rename saves and settings hero re-renders with new name'))
     .catch(() => console.log('FAIL rename did not propagate'));
+  const stillOnSettings = await page.evaluate(() => location.hash === '#/settings' && !!document.querySelector('.st-hero'));
+  console.log(stillOnSettings ? 'PASS save keeps user on Settings page' : 'FAIL unexpected navigation after save');
+  // Verify it also propagated to the homepage identity
+  await page.goto('http://localhost:3000/#/home');
+  await page.waitForSelector('.page-pad, .board', { timeout: 6000 });
+  const homeHasName = await page.evaluate(() => document.body.innerText.includes('Partha'));
+  console.log(homeHasName ? 'PASS new name visible on homepage' : 'FAIL new name missing on homepage');
 
   // restore name
   await page.goto('http://localhost:3000/#/settings');

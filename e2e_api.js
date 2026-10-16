@@ -1,5 +1,5 @@
 const { chromium } = require('playwright');
-const EXE = '/root/.cache/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-linux64/chrome-headless-shell';
+const EXE = process.env.PW_EXE || '/root/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome';
 (async () => {
   const browser = await chromium.launch({ executablePath: EXE });
   const page = await (await browser.newContext()).newPage();

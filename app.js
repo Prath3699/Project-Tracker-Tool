@@ -1232,14 +1232,14 @@ routes.roadmaps = () => {
   const urgIcon = (u) => u === 'Critical' ? '<span title="Critical priority" aria-label="Critical priority">🔥</span>'
                      : u === 'Moderate' ? '<span title="Medium priority" aria-label="Medium priority">⚡</span>' : '';
 
-  const phaseCard = (ph, isUpcoming) => {
+  const phaseCard = (ph, isUpcoming, i = 0) => {
     const pr = ph.pr;
     const ts = TASKS.filter(t => t.project === pr.id)
                     .sort((a, b) => (b.comments || 0) - (a.comments || 0))
                     .slice(0, 4);
     const barColor = ph.pct >= 80 ? 'var(--completed)' : ph.pct >= 40 ? 'var(--accent)' : 'var(--moderate)';
     return `
-      <article class="rm-card${isUpcoming ? ' rm-upcoming' : ''}" data-project="${pr.id}" tabindex="0" role="link" aria-label="Open project ${esc(pr.name)}">
+      <article class="rm-card${isUpcoming ? ' rm-upcoming' : ''}" style="--i:${i}" data-project="${pr.id}" tabindex="0" role="link" aria-label="Open project ${esc(pr.name)}">
         <header class="rm-card-head">
           <div class="rm-badge" aria-hidden="true">${ph.icon}</div>
           <div class="rm-titles">
@@ -1298,10 +1298,10 @@ routes.roadmaps = () => {
       </div>
 
       <h2 class="rm-section-title">🏁 Shipped &amp; shipping</h2>
-      <div class="rm-grid">${phases.map(p => phaseCard(p, false)).join('')}</div>
+      <div class="rm-grid">${phases.map((p, i) => phaseCard(p, false, i)).join('')}</div>
 
       <h2 class="rm-section-title">🔮 Upcoming quarters</h2>
-      <div class="rm-grid">${upcoming.map(p => phaseCard(p, true)).join('')}</div>
+      <div class="rm-grid">${upcoming.map((p, i) => phaseCard(p, true, i + phases.length)).join('')}</div>
     </section>`;
 };
 
@@ -1590,8 +1590,7 @@ document.body.addEventListener('click', (e) => {
       const i = PEOPLE.findIndex(p => p.id === updated.id);
       if (i > -1) PEOPLE[i] = updated; else PEOPLE.push(updated);
       try { localStorage.removeItem(LS_KEY + '.' + ME); } catch (_) {}
-      location.hash = '#/home';
-      render();
+      render(); // stay on Settings — hero card re-renders with the new name
       toast('✔ Settings saved');
     }).catch(err => {
       if (err.status === 401) handleAuthError(err);

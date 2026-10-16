@@ -24,7 +24,7 @@ echo "== session reflects user =="
 chk "session has user" p1 "$(curl -s -b $JAR $B/session | node -pe 'JSON.parse(require("fs").readFileSync(0)).user.id')"
 
 echo "== bootstrap (per-user prefs) =="
-chk "bootstrap keys" "user,people,projects,tasks,inbox,discussions,messages,savedIds,readFlags" \
+chk "bootstrap keys" "user,people,projects,tasks,inbox,discussions,messages,savedIds,readFlags,ui" \
   "$(curl -s -b $JAR $B/bootstrap | node -pe 'Object.keys(JSON.parse(require("fs").readFileSync(0))).join(",")')"
 
 echo "== create task (authed) =="

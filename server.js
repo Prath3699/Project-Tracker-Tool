@@ -492,6 +492,11 @@ async function handleApi(req, res, url) {
   const routeKey = parts.join('/');
   const user = currentUser(req);
 
+  /* --- health check (unauthenticated; used by Render/deploy health probes) --- */
+  if (seg === 'health' && method === 'GET') {
+    return send(res, 200, { ok: true, service: 'taskhive', uptime: Math.round(process.uptime()) + 's', tasks: db.tasks.length });
+  }
+
   /* --- auth --- */
   if (seg === 'login' && method === 'POST') {
     const b = await readBody(req);
