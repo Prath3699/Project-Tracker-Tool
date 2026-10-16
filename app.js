@@ -22,10 +22,11 @@ let PROJECTS = [];
 let INBOX_ITEMS = [];
 let DISCUSSIONS = {};          // taskId -> [{ who, initials, color, text, at }]
 
-const ME = 'p1';               // current user (Parth Sharma)
-const meName  = () => (PEOPLE.find(p => p.id === ME) || { name: 'You' }).name;
-const meInitials = () => (PEOPLE.find(p => p.id === ME) || { initials: 'YO' }).initials;
-const meColor = () => (PEOPLE.find(p => p.id === ME) || { color: '#43b3ff' }).color;
+let ME = null;                 // current user id — set from GET /api/session (Phase 2 auth)
+const mePerson = () => ME ? PEOPLE.find(p => p.id === ME) : null;
+const meName  = () => (mePerson() || { name: 'Guest' }).name;
+const meInitials = () => (mePerson() || { initials: '??' }).initials;
+const meColor = () => (mePerson() || { color: '#888' }).color;
 const personById = (id) => PEOPLE.find(p => p.id === id) || PEOPLE[0] || { name: 'Unknown', initials: '?', color: '#888' };
 
 // Task list exactly as in the design (15 tasks) — ids unique server-side;
@@ -70,20 +71,34 @@ const API_BASE = '/api';
 async function api(method, path, body) {
   const res = await fetch(API_BASE + path, {
     method,
+    credentials: 'same-origin',   // send the session cookie (Phase 2 auth)
     headers: body !== undefined ? { 'Content-Type': 'application/json' } : {},
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
     let msg = `${res.status} ${res.statusText}`;
     try { msg = (await res.json()).error || msg; } catch (_) {}
-    throw new Error(msg);
+    const e = new Error(msg);
+    e.status = res.status;
+    throw e;
   }
   return res.json();
+}
+
+/* Auth gate: mutations that come back 401 drop you on the login screen. */
+let authExpired = false;
+function handleAuthError(err) {
+  if (err && err.status === 401 && !authExpired) {
+    authExpired = true;
+    ME = null;
+    showLoginScreen('Your session expired — please sign in again.');
+  }
 }
 
 /* Fire-and-forget mutation with optimistic UI + rollback on failure */
 function mutate(path, method, body, onSuccess, label) {
   return api(method, path, body).catch(err => {
+    if (err.status === 401) { handleAuthError(err); return; }
     console.error(`${method} ${path} failed:`, err);
     toast(`⚠ ${label || 'Server update failed'} — retrying locally only`);
     if (method === 'PATCH') {           // best-effort single retry for edits
@@ -97,14 +112,11 @@ const deleteTaskApi = (task) => mutate(`/tasks/${encodeURIComponent(task.id)}`, 
 const patchPrefs   = () => mutate('/prefs', 'PATCH', { savedIds, readFlags }, null, 'Preference sync failed');
 const patchInboxRead = (id) => mutate(`/inbox/${encodeURIComponent(id)}`, 'PATCH', { unread: false }, null, 'Read sync failed');
 const patchInboxReadAll = () => mutate('/inbox/read-all', 'PATCH', {}, null, 'Read sync failed');
-const postComment = (taskId, text) => api('POST', `/discussions/${encodeURIComponent(taskId)}`, {
-  text, who: meName(), initials: meInitials(), color: meColor(),
-});
-const postChannelMsg = (key, text) => api('POST', `/channels/${encodeURIComponent(key)}`, {
-  text, who: meName(), initials: meInitials(), color: meColor(),
-});
+const postComment = (taskId, text) => api('POST', `/discussions/${encodeURIComponent(taskId)}`, { text });
+const postChannelMsg = (key, text) => api('POST', `/channels/${encodeURIComponent(key)}`, { text });
 const saveProject = (name) => api('POST', '/projects', { name });
 const saveBoardOrder = (order) => mutate('/board', 'PATCH', { order }, null, 'Board order not saved');
+const updateProfile = (body) => api('PATCH', `/people/${encodeURIComponent(ME)}`, body);
 
 function timeAgo(iso) {
   const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
@@ -128,17 +140,21 @@ let sortState = { key: null, dir: 1 };
 const undoStack = [];
 const LS_KEY = 'issueTracker.v1';
 
+/* localStorage is only a fast cache — and it must be scoped per user so two
+   people sharing a browser never see each other's saved items / read flags. */
+function lsKey() { return ME ? `${LS_KEY}.${ME}` : LS_KEY; }
+
 try {
-  const s = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
+  const s = JSON.parse(localStorage.getItem(lsKey()) || '{}');
   savedIds = Array.isArray(s.saved) ? s.saved : [];
   readFlags = s.read || {};
 } catch (_) {}
 
 function persist() {
   try {
-    localStorage.setItem(LS_KEY, JSON.stringify({ saved: savedIds, read: readFlags }));
+    localStorage.setItem(lsKey(), JSON.stringify({ saved: savedIds, read: readFlags }));
   } catch (_) { /* private mode / storage disabled — server copy still persists */ }
-  patchPrefs(); // sync to backend (fire-and-forget, retried on failure)
+  if (ME) patchPrefs(); // sync to backend (fire-and-forget, retried on failure)
 }
 
 function toast(msg) {
@@ -716,7 +732,73 @@ function parseHash() {
   return { name: parts[0], param: parts[1] || null };
 }
 
+/* ============================ LOGIN SCREEN (Phase 2) ============================ */
+/* Full-page overlay rendered outside the router; shown when no session exists. */
+
+let loginNotice = '';
+
+function showLoginScreen(notice) {
+  if (notice !== undefined) loginNotice = notice;
+  document.body.classList.add('show-login');
+}
+
+function hideLoginScreen() {
+  loginNotice = '';
+  document.body.classList.remove('show-login');
+}
+
+function renderLoginScreen() {
+  const screen = $('#login-screen');
+  if (!screen) return;
+  screen.innerHTML = `
+    <div class="login-card">
+      <div class="login-brand">
+        <div class="org-avatar" aria-hidden="true">
+          <svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M6 8.5h16M4.5 14h19M6 19.5h16" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>
+            <path d="M8 4h12l3 4.5H5L8 4Zm-3.5 5.5h19L26 14H2l2.5-4.5ZM5 19.5h18l-2.5 4.5H7.5L5 19.5Z" fill="#fff" opacity=".28"/>
+          </svg>
+        </div>
+        <h1>TaskHive</h1>
+        <p>Sign in to your workspace</p>
+      </div>
+      ${loginNotice ? `<div class="login-notice">${esc(loginNotice)}</div>` : ''}
+      <form id="login-form" autocomplete="on">
+        <label>Email<input id="login-email" type="email" required placeholder="you@catlas.inc" value="parth@catlas.inc" /></label>
+        <label>Password<input id="login-password" type="password" required placeholder="••••••••" value="password" /></label>
+        <button type="submit" class="btn btn-primary btn-block" id="login-submit">Sign in</button>
+      </form>
+      <div class="login-alt">New here? <button id="show-signup" class="link-btn" type="button">Create an account</button></div>
+      <form id="signup-form" class="hidden">
+        <label>Name<input id="signup-name" type="text" required placeholder="Ada Lovelace" /></label>
+        <label>Email<input id="signup-email" type="email" required placeholder="ada@catlas.inc" /></label>
+        <label>Password<input id="signup-password" type="password" required minlength="4" placeholder="min 4 characters" /></label>
+        <button type="submit" class="btn btn-primary btn-block">Create account</button>
+        <div class="login-alt">Already registered? <button id="show-login" class="link-btn" type="button">Sign in</button></div>
+      </form>
+      <div class="login-hint">Demo accounts — any seeded teammate with password <code>password</code>:<br>
+        parth@ · david@ · maya@ · alex@ · sara@ <em>catlas.inc</em></div>
+    </div>`;
+}
+
+function doLogin(email, password) {
+  return api('POST', '/login', { email, password }).then(d => {
+    authExpired = false;
+    ME = d.user.id;
+    hideLoginScreen();
+    return loadBootstrap();
+  });
+}
+
+function doLogout() {
+  return api('POST', '/logout', {}).catch(() => {}).then(() => {
+    ME = null; savedIds = []; readFlags = {};
+    showLoginScreen('Signed out.');
+  });
+}
+
 function render() {
+  if (!ME) { showLoginScreen('Please sign in to continue.'); }   // session lost mid-use
   const { name, param } = parseHash();
   const fn = routes[name] || routes.home;
   currentRoute = name;
@@ -1041,13 +1123,16 @@ routes.channel = (param) => {
 
 routes.settings = () => {
   setCrumbs([{ label: 'TaskHive' }, { label: 'Settings' }]);
+  const me = mePerson() || { name: '', email: '' };
   return `
     <section class="page-pad narrow">
       <div class="page-head"><h1>Settings</h1></div>
       <div class="settings-group">
         <h3>Profile</h3>
-        <label>Display name<input id="set-name" type="text" value="Parth Sharma" /></label>
-        <label>Email<input type="email" value="priya@catlas.inc" /></label>
+        <p class="muted">You are signed in as <strong>${esc(me.name || '—')}</strong>.</p>
+        <label>Display name<input id="set-name" type="text" value="${esc(me.name)}" /></label>
+        <label>Email<input id="set-email" type="email" value="${esc(me.email || '')}" /></label>
+        <label>New password<input id="set-password" type="password" placeholder="leave blank to keep current password" autocomplete="new-password" /></label>
       </div>
       <div class="settings-group">
         <h3>Preferences</h3>
@@ -1057,6 +1142,7 @@ routes.settings = () => {
       </div>
       <div class="settings-actions">
         <button id="save-settings" class="btn btn-primary">Save changes</button>
+        <button id="logout-btn" class="btn btn-ghost">Sign out</button>
         <button id="reset-data" class="btn btn-ghost danger">Reset demo data</button>
       </div>
     </section>`;
@@ -1228,7 +1314,27 @@ document.body.addEventListener('click', (e) => {
     else { savedIds.push(t.id); toast('★ Saved item'); }
     persist(); render(); return;
   }
-  if (el.id === 'save-settings') return toast('✔ Settings saved');
+  if (el.id === 'save-settings') {
+    const nameEl = $('#set-name'), emailEl = $('#set-email'), passEl = $('#set-password');
+    const body = {};
+    if (nameEl && nameEl.value.trim()) body.name = nameEl.value.trim();
+    if (emailEl && emailEl.value.trim()) body.email = emailEl.value.trim();
+    if (passEl && passEl.value) body.password = passEl.value;
+    if (!ME) return toast('Sign in first');
+    updateProfile(body).then(updated => {
+      const i = PEOPLE.findIndex(p => p.id === updated.id);
+      if (i > -1) PEOPLE[i] = updated; else PEOPLE.push(updated);
+      try { localStorage.removeItem(LS_KEY + '.' + ME); } catch (_) {}
+      location.hash = '#/home';
+      render();
+      toast('✔ Settings saved');
+    }).catch(err => {
+      if (err.status === 401) handleAuthError(err);
+      else toast(`⚠ ${err.message}`);
+    });
+    return;
+  }
+  if (el.id === 'logout-btn') return doLogout().then(() => renderLoginScreen());
   if (el.id === 'reset-data') {
     try { localStorage.clear(); } catch (_) {}
     savedIds = []; readFlags = {};
@@ -1542,7 +1648,9 @@ function toggleDarkMode(force) {
   document.documentElement.classList.toggle('dark', on);
 })();
 
-/* Boot: hydrate in-memory state from GET /api/bootstrap, then render. */
+/* Boot: hydrate in-memory state from GET /api/bootstrap, then render.
+   Phase 2: bootstrap also returns the current session user; unauthenticated
+   visitors get the login screen instead of workspace data. */
 async function loadBootstrap() {
   try {
     const d = await api('GET', '/bootstrap');
@@ -1552,14 +1660,18 @@ async function loadBootstrap() {
     INBOX_ITEMS   = d.inbox || [];
     DISCUSSIONS   = d.discussions || {};
     CHANNEL_MESSAGES = d.messages || {};
+    if (d.user) { ME = d.user.id; hideLoginScreen(); }   // session cookie present — enter workspace
+    else if (!document.body.classList.contains('show-login')) { showLoginScreen(); return; }
     // server prefs win over the stale localStorage cache
-    if (Array.isArray(d.savedIds)) savedIds = d.savedIds.filter(x => typeof x === 'string');
+    savedIds = Array.isArray(d.savedIds) ? d.savedIds.filter(x => typeof x === 'string') : [];
     readFlags = (d.readFlags && typeof d.readFlags === 'object') ? d.readFlags : {};
     INBOX_ITEMS.forEach(it => { if (it.unread === false) readFlags[it.id] = true; });
-    persist(); // push merged prefs back so both copies agree
+    persist(); // push merged prefs back into the per-user cache/server copy
     nextTaskNum = Math.max(100, ...TASKS.map(t => parseInt(String(t.id).replace(/\D/g, ''), 10) || 0)) + 1;
   } catch (err) {
     console.error('bootstrap failed:', err);
+    if (err.status === 401) { ME = null; showLoginScreen('Please sign in to continue.'); renderLoginScreen(); return; }
+    hideLoginScreen();
     pageEl.innerHTML = `<section class="page-pad"><div class="empty-state">⚠ Could not reach the server.<br>
       Start it with <code>npm start</code>, then refresh this page.</div></section>`;
     return;
@@ -1570,4 +1682,53 @@ async function loadBootstrap() {
   render();
 }
 
-loadBootstrap();
+/* Login-screen wiring (delegated so it survives re-renders) */
+document.body.addEventListener('submit', (e) => {
+  if (e.target.id === 'login-form') {
+    e.preventDefault();
+    const btn = $('#login-submit');
+    if (btn) { btn.disabled = true; btn.textContent = 'Signing in…'; }
+    doLogin($('#login-email').value, $('#login-password').value)
+      .catch(err => {
+        if (btn) { btn.disabled = false; btn.textContent = 'Sign in'; }
+        loginNotice = err.message || 'Sign-in failed';
+        renderLoginScreen();
+      });
+  }
+  if (e.target.id === 'signup-form') {
+    e.preventDefault();
+    api('POST', '/signup', {
+      name: $('#signup-name').value.trim(),
+      email: $('#signup-email').value.trim(),
+      password: $('#signup-password').value,
+    }).then(d => {
+      authExpired = false;
+      ME = d.user.id;
+      hideLoginScreen();
+      return loadBootstrap();
+    }).catch(err => {
+      loginNotice = err.message || 'Sign-up failed';
+      renderLoginScreen();
+      const sf = $('#signup-form');   // reopen the signup panel with the error visible
+      if (sf) { sf.classList.remove('hidden'); $('#show-signup')?.closest('.login-card').querySelector('.login-alt')?.classList.add('hidden'); }
+    });
+  }
+});
+
+document.body.addEventListener('click', (e) => {
+  const el = e.target.closest('#show-signup, #show-login');
+  if (!el) return;
+  const sf = $('#signup-form'), lf = $('#login-form'), alt = $('#show-signup')?.parentElement;
+  if (el.id === 'show-signup') { if (sf) sf.classList.remove('hidden'); if (lf) lf.classList.add('hidden'); if (alt) alt.classList.add('hidden'); }
+  else { if (sf) sf.classList.add('hidden'); if (lf) lf.classList.remove('hidden'); if (alt) alt.classList.remove('hidden'); }
+});
+
+/* Boot: always start on the login screen; if a session cookie exists the
+   workspace hydrates immediately behind it (loadBootstrap hides the overlay). */
+function boot() {
+  renderLoginScreen();
+  showLoginScreen();
+  loadBootstrap();
+}
+
+boot();
