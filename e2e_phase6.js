@@ -1,6 +1,6 @@
 /* Phase 6 verification: skeletons, error boundary, a11y, reduced motion */
 const { chromium } = require('playwright');
-const EXE = '/root/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell';
+const EXE = '/root/.cache/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-linux64/chrome-headless-shell';
 let pass = 0, fail = 0;
 const ok = (c, m) => { c ? (pass++, console.log('PASS', m)) : (fail++, console.log('FAIL', m)); };
 

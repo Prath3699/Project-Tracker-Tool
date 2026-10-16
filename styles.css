@@ -698,7 +698,11 @@ kbd { background: var(--kbd-bg); border: 1px solid #ddd; border-radius: 4px; pad
   text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 4px; transition: .15s;
 }
 .stat-card:hover { border-color: var(--accent); box-shadow: 0 4px 14px rgba(123,96,255,.14); }
-.stat-num { font-size: 26px; font-weight: 700; }
+/* <button> elements don't inherit body color by default — without this the
+   numbers render UA-default black, which is unreadable on dark-mode cards. */
+.stat-card { color: var(--text); font-family: inherit; }
+.stat-num { font-size: 26px; font-weight: 700; color: var(--text); line-height: 1.2; }
+html.dark .stat-num { color: #ffffff; }                 /* bright high-contrast in dark mode */
 .stat-label { font-size: 13px; color: var(--text-3); }
 
 .bar-chart { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
