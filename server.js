@@ -263,6 +263,16 @@ function sqliteDeletedRow(id) {
   } catch (_) { return null; }
 }
 
+/* Permanently purge soft-deleted task rows (used by POST /api/purge).
+   Returns the number of rows removed. No-op without SQLite. */
+function purgeDeletedTaskRows() {
+  if (!sqlite || !taskStmts) return 0;
+  try {
+    const info = sqlite.prepare('DELETE FROM tasks WHERE deleted_at IS NOT NULL').run();
+    return info.changes || 0;
+  } catch (e) { console.error('purge failed:', e.message); return 0; }
+}
+
 /* Additive migration so older db.json files gain new collections/counters. */
 function migrate(d) {
   const seed = seedData();
@@ -351,8 +361,8 @@ syncTaskTable();
 const VALID_PROGRESS = ['Ongoing', 'In review', 'Completed', 'Pending', 'On hold'];
 const VALID_URGENCY  = ['Critical', 'Moderate', 'Minor'];
 
-function send(res, status, body, headers = {}) {
-  const payload = typeof body === 'string' ? body : JSON.stringify(body);
+function send(res, status, body, headers = {}, raw) {
+  const payload = raw !== undefined ? raw : (typeof body === 'string' ? body : JSON.stringify(body));
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
@@ -495,6 +505,24 @@ async function handleApi(req, res, url) {
   /* --- health check (unauthenticated; used by Render/deploy health probes) --- */
   if (seg === 'health' && method === 'GET') {
     return send(res, 200, { ok: true, service: 'taskhive', uptime: Math.round(process.uptime()) + 's', tasks: db.tasks.length });
+  }
+
+  /* --- export: full JSON snapshot for backups / host migration --- */
+  if (routeKey === 'export' && method === 'GET') {
+    saveDbSync(); // flush debounced writes so the snapshot is current
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const body = JSON.stringify({ exportedAt: new Date().toISOString(), version: 2, db }, null, 2);
+    return send(res, 200, undefined, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Disposition': `attachment; filename="taskhive-backup-${stamp}.json"`,
+    }, body);
+  }
+
+  /* --- purge: permanently remove soft-deleted task rows (auth only) --- */
+  if (routeKey === 'purge' && method === 'POST') {
+    if (!user) return send(res, 401, { error: 'authentication required' });
+    const purged = purgeDeletedTaskRows();
+    return send(res, 200, { ok: true, purged });
   }
 
   /* --- auth --- */
@@ -908,6 +936,7 @@ const server = http.createServer(async (req, res) => {
       'GET    /api/channels/:id        POST /api/channels/:id',
       'GET    /api/discussions/:taskId POST /api/discussions/:taskId',
       'GET    /api/inbox               PATCH /api/inbox/:id  PATCH /api/inbox/read-all',
+      'GET    /api/export              POST /api/purge       (backup snapshot / soft-delete purge)',
     ]});
   }
   serveStatic(req, res, url);

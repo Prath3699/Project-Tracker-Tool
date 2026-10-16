@@ -86,6 +86,23 @@ echo "== path traversal (expect non-200) =="
 CODE=$(curl -s -o /dev/null -w '%{http_code}' --path-as-is "http://localhost:3000/../etc/passwd")
 if [ "$CODE" != "200" ]; then PASS=$((PASS+1)); echo "ok   traversal blocked ($CODE)"; else FAIL=$((FAIL+1)); echo "FAIL traversal allowed"; fi
 
+echo "== export snapshot (expect 200 + attachment header + valid JSON) =="
+EXP_HDR=$(curl -s -b $JAR -D - -o /tmp/export.json "$B/export" | tr -d '\r')
+EXP_CODE=$(echo "$EXP_HDR" | awk '/HTTP\//{print $2}')
+chk "200 export" 200 "$EXP_CODE"
+if echo "$EXP_HDR" | grep -qi 'content-disposition: attachment; filename="taskhive-backup-'; then
+  PASS=$((PASS+1)); echo "ok   export attachment header"; else FAIL=$((FAIL+1)); echo "FAIL export attachment header missing"; fi
+if node -e "const j=require('/tmp/export.json'); process.exit(j.db && Array.isArray(j.db.tasks) && j.exportedAt ? 0 : 1)" 2>/dev/null; then
+  PASS=$((PASS+1)); echo "ok   export body is valid snapshot JSON"; else FAIL=$((FAIL+1)); echo "FAIL export body invalid"; fi
+
+echo "== purge without auth (expect 401) =="
+chk "401 purge unauth" 401 "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/purge)"
+
+echo "== purge with auth (expect 200 ok:true) =="
+chk "200 purge auth" 200 "$(curl -s -b $JAR -o /dev/null -w '%{http_code}' -X POST $B/purge)"
+PURGE_OK=$(curl -s -b $JAR -X POST $B/purge | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);process.exit(j.ok&&typeof j.purged==='number'?0:1)})" 2>/dev/null; echo $?)
+if [ "$PURGE_OK" = "0" ]; then PASS=$((PASS+1)); echo "ok   purge response shape"; else FAIL=$((FAIL+1)); echo "FAIL purge response shape"; fi
+
 echo "== logout clears cookie =="
 chk "200 logout" 200 "$(curl -s -b $JAR -o /dev/null -w '%{http_code}' -X POST $B/logout)"
 chk "401 after logout" 401 "$(curl -s -b $JAR -o /dev/null -w '%{http_code}' -X POST $B/tasks -d '{"name":"after logout"}')"

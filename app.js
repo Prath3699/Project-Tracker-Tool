@@ -1393,6 +1393,14 @@ routes.settings = () => {
           <h3>🗂 Workspace</h3>
           <p class="st-desc">${PROJECTS.length} projects · ${TASKS.length} tracked issues</p>
           <div class="switch-row">
+            <div><strong>Export backup</strong><p class="muted">Download a full JSON snapshot of the workspace</p></div>
+            <a id="export-data" class="btn btn-ghost btn-sm" href="/api/export" download>Export</a>
+          </div>
+          <div class="switch-row">
+            <div><strong>Purge deleted rows</strong><p class="muted">Permanently remove soft-deleted tasks from storage</p></div>
+            <button id="purge-data" class="btn btn-ghost danger btn-sm">Purge</button>
+          </div>
+          <div class="switch-row">
             <div><strong>Reset demo data</strong><p class="muted">Reload this workspace from the server copy</p></div>
             <button id="reset-data" class="btn btn-ghost danger btn-sm">Reset</button>
           </div>
@@ -1605,6 +1613,13 @@ document.body.addEventListener('click', (e) => {
     patchPrefs();
     location.hash = '#/home';
     loadBootstrap().then(render); return toast('Workspace reloaded from server');
+  }
+  if (el.id === 'purge-data') {
+    mutate('/api/purge', 'POST', {}, (r) => {
+      render();
+      toast(r.purged ? `🧹 Purged ${r.purged} deleted task row${r.purged > 1 ? 's' : ''}` : 'Nothing to purge — storage is clean');
+    }, 'Purge failed');
+    return;
   }
   if (el.id === 'contact-support') return openModal('Contact support', `<form id="support-form"><label>Subject<input type="text" required /></label><label>Message<textarea rows="4" required></textarea></label><button class="btn btn-primary">Send message</button></form>`);
   if (el.id === 'keyboard-shortcuts') return openModal('Keyboard shortcuts', `<ul class="shortcuts"><li><kbd>N</kbd> New feature</li><li><kbd>/</kbd> Focus search</li><li><kbd>Esc</kbd> Close dialogs</li><li><kbd>Ctrl/Cmd</kbd>+<kbd>Z</kbd> Undo last change</li><li><kbd>Ctrl/Cmd</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> Toggle dark mode</li><li><kbd>Enter</kbd> on a focused row opens the task</li></ul>`);
