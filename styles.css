@@ -1034,3 +1034,43 @@ body.show-login .app-shell, body.show-login header.topbar { visibility: hidden; 
 .dark .login-card label { color: #b7c3dc; }
 .dark .login-card input { background: #14203a; border-color: #33436a; color: #e8edf7; }
 .dark .login-hint code { background: #14203a; color: #9fd0ff; }
+
+/* ================= PHASE 6: skeletons, error boundary, a11y, motion ================= */
+
+/* ---- loading skeletons ---- */
+.sk-b { display: block; background: linear-gradient(90deg, var(--hover-soft, #eef0f4) 25%, var(--hover, #e2e5ea) 37%, var(--hover-soft, #eef0f4) 63%); background-size: 400% 100%; border-radius: 6px; animation: sk-shimmer 1.4s ease infinite; }
+.sk-title { height: 22px; width: 220px; margin-bottom: 18px; }
+.sk-row { display: flex; align-items: center; gap: 16px; padding: 13px 6px; border-bottom: 1px solid var(--border, #e6e7ea); }
+.sk-row .sk-b:first-child { height: 13px; }
+.sk-row .sk-sm { height: 11px; opacity: .7; }
+.sk-table { display: flex; flex-direction: column; }
+.sk-kanban { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; }
+.sk-col { background: var(--surface, #fff); border: 1px solid var(--border, #e6e7ea); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 12px; min-height: 160px; }
+.sk-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+.sk-card { background: var(--surface, #fff); border: 1px solid var(--border, #e6e7ea); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+@keyframes sk-shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+
+/* ---- error boundary ---- */
+.error-boundary { border-style: solid; border-color: var(--border, #e6e7ea); padding: 48px 24px; }
+.eb-icon { font-size: 34px; margin-bottom: 10px; }
+.eb-title { font-weight: 700; font-size: 16px; color: var(--text, #1c1d1f); margin-bottom: 6px; }
+.eb-detail { font-size: 13px; color: var(--text-3, #7a7c82); margin-bottom: 18px; word-break: break-word; }
+.eb-actions { display: flex; gap: 10px; justify-content: center; }
+
+/* ---- keyboard focus visibility (global pass) ---- */
+.nav-item:focus-visible, .btn:focus-visible, .icon-btn:focus-visible,
+.th-btn:focus-visible, .kb-card:focus-visible, tr[data-idx]:focus-visible,
+.mt-seg-btn:focus-visible, .pill:focus-visible, select:focus-visible,
+input[type="text"]:focus-visible, input[type="search"]:focus-visible,
+a:focus-visible { outline: 2px solid var(--accent, #7b60ff); outline-offset: 2px; border-radius: 6px; }
+html.dark .nav-item:focus-visible, html.dark a:focus-visible { outline-color: #9d8bff; }
+
+/* ---- skip link ---- */
+.skip-link { position: absolute; left: -9999px; top: 8px; z-index: 300; background: var(--accent, #7b60ff); color: #fff; padding: 8px 14px; border-radius: 8px; font-size: 13px; text-decoration: none; }
+.skip-link:focus { left: 12px; }
+
+/* ---- reduced motion ---- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+  .sk-b { animation: none; }
+}

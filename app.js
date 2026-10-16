@@ -797,12 +797,70 @@ function doLogout() {
   });
 }
 
+/* ---- loading skeletons: shown while a section's data is in flight ---- */
+function skeletonHtml(kind) {
+  const row = (w) => `<div class="sk-row"><span class="sk-b" style="width:${w}%"></span><span class="sk-b sk-sm" style="width:${10 + (w % 25)}%"></span></div>`;
+  if (kind === 'board') {
+    return `<section class="page-pad">
+      <div class="sk-title sk-b"></div>
+      <div class="sk-table">${[92, 78, 85, 64, 88, 70, 80, 55].map(row).join('')}</div>
+    </section>`;
+  }
+  if (kind === 'kanban') {
+    return `<section class="page-pad"><div class="sk-kanban">${
+      [0, 1, 2, 3, 4].map(() => `<div class="sk-col"><span class="sk-b" style="width:60%;height:14px"></span>${row(80)}${row(65)}</div>`).join('')
+    }</div></section>`;
+  }
+  if (kind === 'cards') {
+    return `<section class="page-pad"><div class="sk-cards">${
+      [0, 1, 2, 3].map(() => '<div class="sk-card"><span class="sk-b" style="width:40%;height:16px"></span><span class="sk-b" style="width:80%;height:10px"></span><span class="sk-b" style="width:60%;height:10px"></span></div>').join('')
+    }</div></section>`;
+  }
+  return `<section class="page-pad"><div class="sk-title sk-b"></div>${row(70)}${row(50)}</section>`;
+}
+
+/* Error boundary: a crashing route never leaves the user on a blank page. */
+let lastFatalError = null;
+window.addEventListener('error', (e) => { if (e.message) lastFatalError = e.message; });
+window.addEventListener('unhandledrejection', (e) => {
+  lastFatalError = (e.reason && e.reason.message) || String(e.reason || 'Unknown error');
+});
+
+function renderErrorView(err) {
+  pageEl.innerHTML = `<section class="page-pad">
+    <div class="empty-state error-boundary">
+      <div class="eb-icon">⚠️</div>
+      <div class="eb-title">Something went wrong</div>
+      <div class="eb-detail">${esc(String((err && err.message) || err || 'Unexpected error'))}</div>
+      <div class="eb-actions">
+        <button class="btn-primary" id="eb-retry">Try again</button>
+        <button class="btn-ghost" id="eb-home">Back to Home</button>
+      </div>
+    </div>
+  </section>`;
+  $('#eb-retry')?.addEventListener('click', () => { try { render(); } catch (_) {} });
+  $('#eb-home')?.addEventListener('click', () => {
+    if (location.hash === '#/home' || !location.hash) { try { render(); } catch (_) {} }   // same hash → no hashchange event, re-render manually
+    else location.hash = '#/home';
+  });
+}
+
 function render() {
   if (!ME) { showLoginScreen('Please sign in to continue.'); }   // session lost mid-use
   const { name, param } = parseHash();
   const fn = routes[name] || routes.home;
   currentRoute = name;
-  pageEl.innerHTML = fn(param);
+  // Show skeletons when navigating before bootstrap data has arrived.
+  if (!PEOPLE.length && !document.body.classList.contains('show-login')) {
+    pageEl.innerHTML = skeletonHtml(name === 'projects' ? 'cards' : 'board');
+  } else {
+    try {
+      pageEl.innerHTML = fn(param);
+    } catch (err) {
+      console.error('render crashed:', err);
+      renderErrorView(err);
+    }
+  }
   setActiveNav(name, param);
   if (name === 'mytasks' && mtView === 'board') {
     const c = $('.mt-content');
@@ -862,7 +920,8 @@ routes.home = () => {
               <span><strong>${esc(it.who)}</strong> ${esc(it.text)} <em>${timeAgo(it.at)}</em></span></li>`).join('')}
       </ul>
       <h2 class="section-title">Your tasks</h2>
-      ${taskTableHtml(mine)}
+      ${mine.length ? taskTableHtml(mine)
+        : '<div class="empty-state">Nothing assigned to you right now. Check the <a href="#/projects">Projects</a> board or create a new feature.</div>'}
     </section>`;
 };
 
@@ -1652,6 +1711,10 @@ function toggleDarkMode(force) {
    Phase 2: bootstrap also returns the current session user; unauthenticated
    visitors get the login screen instead of workspace data. */
 async function loadBootstrap() {
+  // While the first bootstrap request is in flight, paint skeleton placeholders.
+  const skKind = (parseHash().name === 'projects') ? 'cards' : 'board';
+  let skShown = false;
+  if (!PEOPLE.length && pageEl) { pageEl.innerHTML = skeletonHtml(skKind); skShown = true; }
   try {
     const d = await api('GET', '/bootstrap');
     PEOPLE        = d.people || [];
@@ -1661,7 +1724,10 @@ async function loadBootstrap() {
     DISCUSSIONS   = d.discussions || {};
     CHANNEL_MESSAGES = d.messages || {};
     if (d.user) { ME = d.user.id; hideLoginScreen(); }   // session cookie present — enter workspace
-    else if (!document.body.classList.contains('show-login')) { showLoginScreen(); return; }
+    else if (!document.body.classList.contains('show-login')) {
+      if (skShown) pageEl.innerHTML = '';                // skeletons are meaningless behind the login overlay
+      showLoginScreen(); return;
+    }
     // server prefs win over the stale localStorage cache
     savedIds = Array.isArray(d.savedIds) ? d.savedIds.filter(x => typeof x === 'string') : [];
     readFlags = (d.readFlags && typeof d.readFlags === 'object') ? d.readFlags : {};

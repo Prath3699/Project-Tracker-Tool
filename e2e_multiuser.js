@@ -8,7 +8,8 @@ async function login(page, email) {
   await page.fill('#login-email', email);
   await page.fill('#login-password', 'password');
   await page.click('#login-submit');
-  await page.waitForSelector('.task-table tbody tr', { timeout: 8000 });
+  // login succeeds when the overlay disappears (home may show an empty "Your tasks" table for new users)
+  await page.waitForFunction(() => !document.body.classList.contains('show-login'), null, { timeout: 8000 });
 }
 
 (async () => {
@@ -50,8 +51,10 @@ async function login(page, email) {
   await C.fill('#signup-email', `ada${Date.now()}@catlas.inc`);
   await C.fill('#signup-password', 'calculus');
   await C.click('#signup-form button[type=submit]');
-  await C.waitForSelector('.task-table tbody tr', { timeout: 8000 }).catch(() => {});
-  check('signup enters workspace', (await C.$$('.task-table tbody tr')).length > 0);
+  // workspace is entered when the login overlay disappears; home then renders (stats, activity, tasks)
+  await C.waitForFunction(() => !document.body.classList.contains('show-login'), null, { timeout: 8000 }).catch(() => {});
+  const landed = await C.evaluate(() => document.body.textContent.includes('Welcome back') && !!document.querySelector('.stat-grid'));
+  check('signup enters workspace', landed);
 
   // --- Logout returns to login screen
   await C.click('#logout-btn').catch(async () => {

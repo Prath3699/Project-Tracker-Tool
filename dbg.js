@@ -1,22 +1,23 @@
 const { chromium } = require('playwright');
 const EXE = '/root/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell';
 (async () => {
-  const browser = await chromium.launch({ executablePath: EXE });
-  const page = await (await browser.newContext({ viewport:{width:1440,height:900} })).newPage();
-  page.on('pageerror', e => console.log('PAGEERR', String(e)));
-  await page.goto('http://localhost:8090/index.html#/mytasks', {waitUntil:'networkidle0'});
-  await new Promise(r=>setTimeout(r,400));
-  console.log(await page.evaluate(() => ({
-    filterVar: typeof myTaskFilter !== 'undefined' ? myTaskFilter : 'UNDEFINED',
-    cards: document.querySelectorAll('.mtask-card').length,
-  })));
-  await page.click('.mtask-card[data-status="In review"]');
-  await new Promise(r=>setTimeout(r,400));
-  console.log(await page.evaluate(() => ({
-    filterVarAfterClick: typeof myTaskFilter !== 'undefined' ? myTaskFilter : 'UNDEFINED',
-    activeCards: [...document.querySelectorAll('.mtask-card.active')].map(c=>c.dataset.status),
-    groups: [...document.querySelectorAll('.mtask-group-title')].map(g=>g.textContent.trim()),
-    rows: document.querySelectorAll('.task-table tbody tr[data-idx]').length,
-  })));
-  await browser.close();
+  const b = await chromium.launch({ executablePath: EXE });
+  const p = await b.newPage();
+  p.on('console', m => console.log('[console]', m.type(), m.text()));
+  p.on('pageerror', e => console.log('[pageerror]', e.message));
+  p.on('requestfailed', r => console.log('[reqfail]', r.url(), r.failure()?.errorText));
+  await p.goto('http://localhost:3000', { waitUntil: 'networkidle' });
+  await p.click('#show-signup'); await p.waitForTimeout(200);
+  await p.fill('#signup-name', 'Ada Lovelace');
+  await p.fill('#signup-email', `ada${Date.now()}@catlas.inc`);
+  await p.fill('#signup-password', 'calculus');
+  await p.click('#signup-form button[type=submit]');
+  await p.waitForTimeout(2500);
+  console.log('rows:', (await p.$$('.task-table tbody tr')).length);
+  console.log('show-login class:', await p.evaluate(() => document.body.classList.contains('show-login')));
+  console.log('loginNotice:', await p.evaluate(() => typeof loginNotice !== 'undefined' ? loginNotice : 'n/a'));
+  console.log('ME:', await p.evaluate(() => typeof ME !== 'undefined' ? ME : 'n/a'));
+  console.log('TASKS len:', await p.evaluate(() => typeof TASKS !== 'undefined' ? TASKS.length : 'n/a'));
+  console.log('hash:', await p.evaluate(() => location.hash));
+  await b.close();
 })();
