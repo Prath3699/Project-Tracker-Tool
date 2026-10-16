@@ -274,6 +274,10 @@ function updateTaskRow(idx) {
   fresh.innerHTML = taskRowHtml(t);
   fresh.dataset.idx = idx; fresh.tabIndex = 0;
   fresh.className = tr.className;
+  [...fresh.children].forEach((td, i) => {
+    const lbl = tr.children[i] && tr.children[i].getAttribute('data-label');
+    if (lbl) td.setAttribute('data-label', lbl);
+  });
   tr.replaceWith(fresh);
 }
 
@@ -448,6 +452,21 @@ document.addEventListener('keydown', (e) => {
 });
 
 /* ============================ SHARED COMPONENTS ============================ */
+
+/* ---- Mobile card layout for task tables (data-labels come from th text) ---- */
+function tagCardLabels() {
+  document.querySelectorAll('table.task-table').forEach(tbl => {
+    const heads = [...tbl.querySelectorAll('thead th')];
+    tbl.querySelectorAll('tbody tr').forEach(tr => {
+      [...tr.children].forEach((td, i) => {
+        const h = heads[i];
+        if (!h) return;
+        const label = (h.getAttribute('data-col-name') || h.textContent || '').trim();
+        if (label) td.setAttribute('data-label', label);
+      });
+    });
+  });
+}
 
 function taskRowHtml(t) {
   const p = personById(t.assignee);
@@ -718,6 +737,7 @@ function renderBoardBody() {
   const rows = visibleTasks();
   host.innerHTML = toolbarHtml() + (rows.length ? taskTableHtml(rows)
     : `<div class="empty-state">No tasks match your search or filters.<br><button id="clear-filters" class="btn btn-ghost btn-sm" style="margin-top:8px">Clear filters</button></div>`);
+  tagCardLabels();
   updateBulkBar();
 }
 
@@ -866,6 +886,7 @@ function render() {
   }
   // else: skeleton already painted by loadBootstrap — leave it until data arrives
   setActiveNav(name, param);
+  tagCardLabels();   // mobile card layout: label each td from its th
   if (name === 'mytasks' && mtView === 'board') {
     const c = $('.mt-content');
     if (c) wireKanban(c);
@@ -888,6 +909,31 @@ function setCrumbs(items) { // items: [{label, hash}] last is current
 }
 
 window.addEventListener('hashchange', render);
+
+/* ============================ MOBILE SIDEBAR DRAWER ============================ */
+
+const menuBtn = $('#menu-btn');
+const sidebarEl = document.querySelector('.sidebar');
+const scrimEl = $('#sidebar-scrim');
+const sidebarCloseBtn = $('#sidebar-close');
+
+function setSidebar(open) {
+  if (!sidebarEl || !scrimEl || !menuBtn) return;
+  document.body.classList.toggle('nav-open', open);
+  scrimEl.hidden = !open;
+  menuBtn.setAttribute('aria-expanded', String(open));
+  sidebarEl.setAttribute('aria-hidden', 'false');
+}
+
+if (menuBtn) menuBtn.addEventListener('click', () => setSidebar(!document.body.classList.contains('nav-open')));
+if (scrimEl) scrimEl.addEventListener('click', () => setSidebar(false));
+if (sidebarCloseBtn) sidebarCloseBtn.addEventListener('click', () => setSidebar(false));
+// close drawer after choosing a destination on phones
+document.querySelectorAll('.sidebar .nav-item').forEach(a => a.addEventListener('click', () => {
+  if (window.matchMedia('(max-width: 820px)').matches) setSidebar(false);
+}));
+window.addEventListener('hashchange', () => setSidebar(false));
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape') setSidebar(false); });
 
 /* ============================ PAGES ============================ */
 
