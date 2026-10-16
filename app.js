@@ -747,6 +747,7 @@ function renderBoardBody() {
 
 const routes = {}; // filled below
 let currentRoute = '';
+let rmFilter = 'all';   // roadmap quarter filter chip state (persists across re-renders)
 
 function parseHash() {
   const h = location.hash.replace(/^#\/?/, '') || 'home';
@@ -897,10 +898,13 @@ function render() {
 }
 
 function setActiveNav(name, param) {
-  document.querySelectorAll('.nav-item').forEach(a => {
+  document.querySelectorAll('.sidebar .nav-item').forEach(a => {
     const r = a.dataset.route;
     a.classList.toggle('active', r === name && (!a.dataset.param || a.dataset.param === param));
   });
+  // bottom tab bar highlights the closest top-level section
+  const topOf = { project: 'projects', task: 'projects', channel: 'home', saved: 'inbox' }[name] || name;
+  document.querySelectorAll('.bt-item').forEach(a => a.classList.toggle('active', a.dataset.route === topOf));
 }
 
 function setCrumbs(items) { // items: [{label, hash}] last is current
@@ -1221,8 +1225,16 @@ routes.roadmaps = () => {
     const o = ts.filter(t => t.progress === 'Ongoing').length;
     return Math.round(((d + r * 0.6 + o * 0.3) / ts.length) * 100);
   };
-  const phases = PROJECTS.slice(0, 2).map((pr, i) => ({ ...PHASE_META[i], pr, pct: 100 }));
-  const upcoming = PROJECTS.slice(2).map((pr, i) => ({ ...PHASE_META[Math.min(2 + i, 3)], pr, pct: projPct(pr) }));
+  const allPhases = [
+    ...PROJECTS.slice(0, 2).map((pr, i) => ({ ...PHASE_META[i], pr, pct: 100, shipped: true })),
+    ...PROJECTS.slice(2).map((pr, i) => ({ ...PHASE_META[Math.min(2 + i, 3)], pr, pct: projPct(pr), shipped: false })),
+  ];
+  /* ---- Quarter filter (chips below the stats strip) ---- */
+  const quarters = [...new Set(allPhases.map(p => p.q))];
+  if (rmFilter !== 'all' && !quarters.includes(rmFilter)) rmFilter = 'all';
+  const visible = rmFilter === 'all' ? allPhases : allPhases.filter(p => p.q === rmFilter);
+  const phases   = visible.filter(p => p.shipped);
+  const upcoming = visible.filter(p => !p.shipped);
 
   const statusBadge = (p) => {
     const map = { Completed: ['✓ Done', 'ev-green'], 'In review': ['👁 Review', 'ev-blue'], Ongoing: ['▶ Active', 'ev-purple'], Pending: ['◷ Queued', 'ev-gray'], 'On hold': ['⏸ Hold', 'ev-red'] };
@@ -1289,6 +1301,11 @@ routes.roadmaps = () => {
         <div class="rm-stat" role="listitem"><b>${teamCnt}</b><span>Contributors</span></div>
       </div>
 
+      <div class="rm-filters" role="group" aria-label="Filter roadmap by quarter">
+        <button class="rm-chipf ${rmFilter === 'all' ? 'on' : ''}" data-rmf="all">All quarters</button>
+        ${quarters.map(q => `<button class="rm-chipf ${rmFilter === q ? 'on' : ''}" data-rmf="${q}">${q}</button>`).join('')}
+      </div>
+
       <div class="rm-track" aria-label="Timeline track">
         <div class="rm-line" aria-hidden="true"></div>
         ${[...phases, ...upcoming].map((ph, i) => `
@@ -1298,10 +1315,12 @@ routes.roadmaps = () => {
       </div>
 
       <h2 class="rm-section-title">🏁 Shipped &amp; shipping</h2>
-      <div class="rm-grid">${phases.map((p, i) => phaseCard(p, false, i)).join('')}</div>
+      ${phases.length ? `<div class="rm-grid">${phases.map((p, i) => phaseCard(p, false, i)).join('')}</div>` : ''}
 
       <h2 class="rm-section-title">🔮 Upcoming quarters</h2>
-      <div class="rm-grid">${upcoming.map((p, i) => phaseCard(p, true, i + phases.length)).join('')}</div>
+      ${upcoming.length ? `<div class="rm-grid">${upcoming.map((p, i) => phaseCard(p, true, i + phases.length)).join('')}</div>` : ''}
+
+      ${!phases.length && !upcoming.length ? '<div class="empty-state">No quarters match this filter.</div>' : ''}
     </section>`;
 };
 
@@ -1345,7 +1364,10 @@ routes.settings = () => {
       <!-- Profile hero card -->
       <div class="settings-group st-hero">
         <div class="st-hero-top">
-          <span class="avatar avatar-lg" style="--a:${esc(me.color || '#888')}">${esc(me.initials || '??')}</span>
+          <span class="st-avatar-wrap" title="${esc(me.name || '')}">
+            <span class="avatar avatar-lg" style="--a:${esc(me.color || '#888')}">${esc(me.initials || '??')}</span>
+            <span class="st-presence" aria-hidden="true"></span>
+          </span>
           <div class="st-hero-id">
             <h2>${esc(me.name || '—')}</h2>
             <p class="muted">${esc(me.email || '')}</p>
@@ -1392,6 +1414,19 @@ routes.settings = () => {
         <div class="settings-group">
           <h3>🗂 Workspace</h3>
           <p class="st-desc">${PROJECTS.length} projects · ${TASKS.length} tracked issues</p>
+          <div class="switch-row">
+            <div><strong>Export backup</strong><p class="muted">Download a full JSON snapshot of the workspace</p></div>
+            <a id="export-data" class="btn btn-ghost btn-sm" href="/api/export" download>Export</a>
+          </div>
+          <div class="switch-row">
+            <div><strong>Purge deleted rows</strong><p class="muted">Permanently remove soft-deleted tasks from storage</p></div>
+            <button id="purge-data" class="btn btn-ghost danger btn-sm">Purge</button>
+          </div>
+          <div class="switch-row">
+            <div><strong>Import backup</strong><p class="muted">Restore a JSON snapshot exported earlier (admin only)</p></div>
+            <label class="btn btn-ghost btn-sm" for="import-data" style="cursor:pointer">Import</label>
+            <input type="file" id="import-data" accept=".json,application/json" hidden />
+          </div>
           <div class="switch-row">
             <div><strong>Reset demo data</strong><p class="muted">Reload this workspace from the server copy</p></div>
             <button id="reset-data" class="btn btn-ghost danger btn-sm">Reset</button>
@@ -1489,8 +1524,11 @@ document.body.addEventListener('click', (e) => {
   if (thBtn) { openColMenu(thBtn); return; }
   if (document.querySelector('.col-menu')) closeColMenus(); // click outside → dismiss
 
-  const el = e.target.closest('[id],[data-goto],[data-calday],[data-project],[data-inbox],[data-attachment],[data-person],[data-plan],[data-view],[data-export],[data-status],[data-mtview],[data-mtchip],[data-del]');
+  const el = e.target.closest('[id],[data-goto],[data-calday],[data-project],[data-inbox],[data-attachment],[data-person],[data-plan],[data-view],[data-export],[data-status],[data-mtview],[data-mtchip],[data-del],[data-rmf]');
   if (!el) return;
+
+  // Roadmap quarter filter chips
+  if (el.dataset.rmf) { rmFilter = el.dataset.rmf; render(); return; }
 
   // My Tasks status pills (must run before the generic closest() id lookup)
   const pill = e.target.closest('.mt-pill');
@@ -1606,6 +1644,35 @@ document.body.addEventListener('click', (e) => {
     location.hash = '#/home';
     loadBootstrap().then(render); return toast('Workspace reloaded from server');
   }
+  if (el.id === 'purge-data') {
+    mutate('/api/purge', 'POST', {}, (r) => {
+      render();
+      toast(r.purged ? `🧹 Purged ${r.purged} deleted task row${r.purged > 1 ? 's' : ''}` : 'Nothing to purge — storage is clean');
+    }, 'Purge failed');
+    return;
+  }
+  /* ---- import backup: restore a JSON snapshot via POST /api/import ---- */
+  if (el.id === 'import-data' && el.files && el.files[0]) {
+    const file = el.files[0];
+    const reader = new FileReader();
+    reader.onload = async () => {
+      let snap;
+      try { snap = JSON.parse(String(reader.result)); }
+      catch (_) { return toast('⚠️ That file isn\'t valid JSON'); }
+      try {
+        const r = await api('POST', '/api/import', snap);
+        await loadBootstrap();
+        render();
+        toast(`✅ Restored ${r.tasks} tasks · ${r.people} people from ${file.name}`);
+      } catch (err) {
+        toast(`Import failed: ${err.message}`);
+      }
+    };
+    reader.onerror = () => toast('Could not read that file');
+    reader.readAsText(file);
+    el.value = ''; // allow re-selecting the same file later
+    return;
+  }
   if (el.id === 'contact-support') return openModal('Contact support', `<form id="support-form"><label>Subject<input type="text" required /></label><label>Message<textarea rows="4" required></textarea></label><button class="btn btn-primary">Send message</button></form>`);
   if (el.id === 'keyboard-shortcuts') return openModal('Keyboard shortcuts', `<ul class="shortcuts"><li><kbd>N</kbd> New feature</li><li><kbd>/</kbd> Focus search</li><li><kbd>Esc</kbd> Close dialogs</li><li><kbd>Ctrl/Cmd</kbd>+<kbd>Z</kbd> Undo last change</li><li><kbd>Ctrl/Cmd</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> Toggle dark mode</li><li><kbd>Enter</kbd> on a focused row opens the task</li></ul>`);
 
@@ -1686,6 +1753,27 @@ document.body.addEventListener('change', (e) => {
   if (e.target.id === 'flt-progress') { filterState.progress = e.target.value; refreshViews(); }
   if (e.target.id === 'flt-urgency')  { filterState.urgency = e.target.value; refreshViews(); }
   if (e.target.id === 'flt-assignee') { filterState.assignee = e.target.value; refreshViews(); }
+  /* Import backup: file input fires 'change' when a snapshot is selected. */
+  if (e.target.id === 'import-data' && e.target.files && e.target.files[0]) {
+    const file = e.target.files[0];
+    const reader = new FileReader();
+    reader.onload = async () => {
+      let snap;
+      try { snap = JSON.parse(String(reader.result)); }
+      catch (_) { return toast('⚠️ That file isn\'t valid JSON'); }
+      try {
+        const r = await api('POST', '/api/import', snap);
+        await loadBootstrap();
+        render();
+        toast(`✅ Restored ${r.tasks} tasks · ${r.people} people from ${file.name}`);
+      } catch (err) {
+        toast(`Import failed: ${err.message}`);
+      }
+    };
+    reader.onerror = () => toast('Could not read that file');
+    reader.readAsText(file);
+    e.target.value = ''; // allow re-selecting the same file later
+  }
   if (e.target.id === 'prop-status') {
     const idx = +e.target.dataset.idx;
     const t = TASKS.find(x => x.idx === idx);

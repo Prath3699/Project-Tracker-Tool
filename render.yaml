@@ -12,6 +12,13 @@ services:
       - key: NODE_VERSION
         value: "20"
       # PORT is injected automatically by Render; server.js honours process.env.PORT.
-      # NOTE: the default SQLite file lives under ./data — on Render's free tier the
-      # filesystem is ephemeral, so attach a Disk (render.yaml `disk` below) or move
-      # to Postgres for durable storage on paid plans.
+      # Durable storage (Phase 4 hardening): the free-tier container filesystem is
+      # ephemeral, so we mount a persistent Render Disk at /var/data and point the
+      # app's SQLite/JSON store there via TASKHIVE_DATA_DIR. Data now survives
+      # restarts and redeploys. On paid plans an alternative is a Postgres instance.
+      - key: TASKHIVE_DATA_DIR
+        value: /var/data/taskhive
+    disk:
+      name: taskhive-data
+      mountPath: /var/data
+      sizeGB: 1   # minimum allowed on Render

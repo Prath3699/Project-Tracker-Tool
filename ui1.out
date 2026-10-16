@@ -1,0 +1,3 @@
+PASS: status cycles (On hold→Ongoing) | delete removes row | undo restores row | kanban columns | kanban cards have avatars | mytasks renders own tasks | project card navigates | assignee filter works
+FAIL: none
+PAGEERRORS: none

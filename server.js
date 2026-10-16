@@ -15,7 +15,10 @@ const path = require('path');
 const crypto = require('crypto');
 
 const ROOT = __dirname;
-const DATA_DIR = path.join(ROOT, 'data');
+/* Durable storage location. On Render's free tier the container filesystem is
+ * ephemeral, so render.yaml mounts a persistent Disk at /var/data and sets
+ * TASKHIVE_DATA_DIR accordingly. Locally it defaults to ./data. */
+const DATA_DIR = process.env.TASKHIVE_DATA_DIR || path.join(ROOT, 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');   // fallback store (no SQLite driver)
 const SQLITE_FILE = path.join(DATA_DIR, 'taskhive.db'); // durable store (Phase 4)
 const PORT = Number(process.argv[2] || process.env.PORT || 3000);
@@ -60,7 +63,7 @@ function verifyPassword(pw, stored) {
 
 function seedData() {
   const people = [
-    { id: 'p1', name: 'Parth Sharma', initials: 'PT', color: '#43b3ff', email: 'parth@catlas.inc',   password: hashPassword(DEMO_PASSWORD) },
+    { id: 'p1', name: 'Parth Sharma', initials: 'PT', color: '#43b3ff', email: 'parth@catlas.inc',   password: hashPassword(DEMO_PASSWORD), role: 'admin' },
     { id: 'p2', name: 'David Lee',    initials: 'DL', color: '#ffa575', email: 'david@catlas.inc',   password: hashPassword(DEMO_PASSWORD) },
     { id: 'p3', name: 'Maya Chen',    initials: 'MC', color: '#7b60ff', email: 'maya@catlas.inc',    password: hashPassword(DEMO_PASSWORD) },
     { id: 'p4', name: 'Alex Kim',     initials: 'AK', color: '#3eb957', email: 'alex@catlas.inc',    password: hashPassword(DEMO_PASSWORD) },
@@ -263,6 +266,16 @@ function sqliteDeletedRow(id) {
   } catch (_) { return null; }
 }
 
+/* Permanently purge soft-deleted task rows (used by POST /api/purge).
+   Returns the number of rows removed. No-op without SQLite. */
+function purgeDeletedTaskRows() {
+  if (!sqlite || !taskStmts) return 0;
+  try {
+    const info = sqlite.prepare('DELETE FROM tasks WHERE deleted_at IS NOT NULL').run();
+    return info.changes || 0;
+  } catch (e) { console.error('purge failed:', e.message); return 0; }
+}
+
 /* Additive migration so older db.json files gain new collections/counters. */
 function migrate(d) {
   const seed = seedData();
@@ -289,6 +302,9 @@ function migrate(d) {
     if (!p.password) p.password = hashPassword(DEMO_PASSWORD);
     else if (!String(p.password).startsWith('sc$')) p.password = hashPassword(String(p.password));
   });
+  /* Backfill: the first member is the workspace admin (needed for /api/import);
+   * existing databases created before roles existed get upgraded additively. */
+  if (d.people[0] && !d.people.some(p => p.role === 'admin')) d.people[0].role = 'admin';
   return d;
 }
 
@@ -351,8 +367,8 @@ syncTaskTable();
 const VALID_PROGRESS = ['Ongoing', 'In review', 'Completed', 'Pending', 'On hold'];
 const VALID_URGENCY  = ['Critical', 'Moderate', 'Minor'];
 
-function send(res, status, body, headers = {}) {
-  const payload = typeof body === 'string' ? body : JSON.stringify(body);
+function send(res, status, body, headers = {}, raw) {
+  const payload = raw !== undefined ? raw : (typeof body === 'string' ? body : JSON.stringify(body));
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
@@ -495,6 +511,42 @@ async function handleApi(req, res, url) {
   /* --- health check (unauthenticated; used by Render/deploy health probes) --- */
   if (seg === 'health' && method === 'GET') {
     return send(res, 200, { ok: true, service: 'taskhive', uptime: Math.round(process.uptime()) + 's', tasks: db.tasks.length });
+  }
+
+  /* --- export: full JSON snapshot for backups / host migration --- */
+  if (routeKey === 'export' && method === 'GET') {
+    saveDbSync(); // flush debounced writes so the snapshot is current
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const body = JSON.stringify({ exportedAt: new Date().toISOString(), version: 2, db }, null, 2);
+    return send(res, 200, undefined, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Disposition': `attachment; filename="taskhive-backup-${stamp}.json"`,
+    }, body);
+  }
+
+  /* --- import: restore a JSON snapshot produced by /api/export (admin auth) ---
+   * Lets a deploy with an ephemeral disk be re-seeded after restarts, or move
+   * data between hosts. Body must be the exact export format ({version, db}). */
+  if (routeKey === 'import' && method === 'POST') {
+    if (!user) return send(res, 401, { error: 'authentication required' });
+    if (user.role !== 'admin') return send(res, 403, { error: 'admin role required for import' });
+    let b;
+    try { b = await readBody(req); } catch (e) { return send(res, 400, { error: e.message }); }
+    const incoming = (b && b.db) ? b.db : b;   // accept wrapped or bare db object
+    if (!incoming || !Array.isArray(incoming.tasks) || !Array.isArray(incoming.people)) {
+      return send(res, 400, { error: 'invalid snapshot: expected an export JSON with tasks[] and people[]' });
+    }
+    try { migrate(incoming); } catch (e) { return send(res, 400, { error: 'snapshot failed validation: ' + e.message }); }
+    db = incoming;
+    saveDbSync();          // durable write + SQLite mirror sync
+    return send(res, 200, { ok: true, tasks: db.tasks.length, people: db.people.length });
+  }
+
+  /* --- purge: permanently remove soft-deleted task rows (auth only) --- */
+  if (routeKey === 'purge' && method === 'POST') {
+    if (!user) return send(res, 401, { error: 'authentication required' });
+    const purged = purgeDeletedTaskRows();
+    return send(res, 200, { ok: true, purged });
   }
 
   /* --- auth --- */
@@ -908,6 +960,7 @@ const server = http.createServer(async (req, res) => {
       'GET    /api/channels/:id        POST /api/channels/:id',
       'GET    /api/discussions/:taskId POST /api/discussions/:taskId',
       'GET    /api/inbox               PATCH /api/inbox/:id  PATCH /api/inbox/read-all',
+      'GET    /api/export              POST /api/purge       (backup snapshot / soft-delete purge)',
     ]});
   }
   serveStatic(req, res, url);
