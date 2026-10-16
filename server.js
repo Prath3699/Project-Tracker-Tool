@@ -293,10 +293,11 @@ function migrate(d) {
 }
 
 function userPrefs(uid) {
-  if (!db.prefsByUser[uid]) db.prefsByUser[uid] = { savedIds: [], readFlags: {} };
+  if (!db.prefsByUser[uid]) db.prefsByUser[uid] = { savedIds: [], readFlags: {}, ui: {} };
   const pr = db.prefsByUser[uid];
   if (!Array.isArray(pr.savedIds)) pr.savedIds = [];
   if (!pr.readFlags || typeof pr.readFlags !== 'object') pr.readFlags = {};
+  if (!pr.ui || typeof pr.ui !== 'object') pr.ui = {};   // theme / notification toggles
   return pr;
 }
 
@@ -541,7 +542,7 @@ async function handleApi(req, res, url) {
 
   /* --- bootstrap: everything the frontend needs in one call --- */
   if (seg === 'bootstrap' && method === 'GET') {
-    const prefs = user ? userPrefs(user.id) : { savedIds: [], readFlags: {} };
+    const prefs = user ? userPrefs(user.id) : { savedIds: [], readFlags: {}, ui: {} };
     return send(res, 200, {
       user: user ? publicPerson(user) : null,
       people: db.people.map(publicPerson),
@@ -555,6 +556,7 @@ async function handleApi(req, res, url) {
       messages: db.messages,
       savedIds: prefs.savedIds,
       readFlags: prefs.readFlags,
+      ui: prefs.ui,
     });
   }
 
@@ -790,13 +792,14 @@ async function handleApi(req, res, url) {
   if (seg === 'prefs') {
     if (!user) return send(res, 401, { error: 'authentication required' });
     const pr = userPrefs(user.id);
-    if (method === 'GET') return send(res, 200, { savedIds: pr.savedIds, readFlags: pr.readFlags });
+    if (method === 'GET') return send(res, 200, { savedIds: pr.savedIds, readFlags: pr.readFlags, ui: pr.ui });
     if (method === 'PATCH' || method === 'PUT') {
       const b = await readBody(req);
       if (Array.isArray(b.savedIds)) pr.savedIds = b.savedIds.filter(x => typeof x === 'string');
       if (b.readFlags && typeof b.readFlags === 'object') pr.readFlags = b.readFlags;
+      if (b.ui && typeof b.ui === 'object') pr.ui = { ...pr.ui, ...b.ui };
       saveDb();
-      return send(res, 200, { savedIds: pr.savedIds, readFlags: pr.readFlags });
+      return send(res, 200, { savedIds: pr.savedIds, readFlags: pr.readFlags, ui: pr.ui });
     }
     return send(res, 405, { error: 'method not allowed' });
   }

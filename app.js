@@ -109,7 +109,7 @@ function mutate(path, method, body, onSuccess, label) {
 
 const patchTask    = (task, body, label) => mutate(`/tasks/${encodeURIComponent(task.id)}`, 'PATCH', body, null, label || 'Save failed');
 const deleteTaskApi = (task) => mutate(`/tasks/${encodeURIComponent(task.id)}`, 'DELETE', undefined, null, 'Delete failed');
-const patchPrefs   = () => mutate('/prefs', 'PATCH', { savedIds, readFlags }, null, 'Preference sync failed');
+const patchPrefs   = () => mutate('/prefs', 'PATCH', { savedIds, readFlags, ui: uiPrefs }, null, 'Preference sync failed');
 const patchInboxRead = (id) => mutate(`/inbox/${encodeURIComponent(id)}`, 'PATCH', { unread: false }, null, 'Read sync failed');
 const patchInboxReadAll = () => mutate('/inbox/read-all', 'PATCH', {}, null, 'Read sync failed');
 const postComment = (taskId, text) => api('POST', `/discussions/${encodeURIComponent(taskId)}`, { text });
@@ -135,6 +135,8 @@ const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt
 
 let savedIds = [];     // task ids (strings) — canonical copy lives on the server (/api/prefs)
 let readFlags = {};    // inbox item id -> true (server-persisted; localStorage is a fast cache)
+let uiPrefs = { darkMode: null, emailNotifications: true, weeklyDigest: false }; // per-user UI toggles (server-persisted)
+let _themeFromServer = false; // true once the server-stored theme has been applied this session
 let nextTaskNum = 100; // provisional TSK-### counter for optimistic rows; server assigns the real id
 let sortState = { key: null, dir: 1 };
 const undoStack = [];
@@ -1190,21 +1192,116 @@ routes.calendar = () => {
 
 routes.roadmaps = () => {
   setCrumbs([{ label: 'Workspace' }, { label: 'Roadmaps' }]);
-  const phases = [
-    { q: 'Q1', label: 'Foundation', pct: 100 }, { q: 'Q2', label: 'Growth', pct: 100 },
-    { q: 'Q3', label: 'Q3 Plan', pct: 55 }, { q: 'Q4', label: 'Scale', pct: 10 },
+
+  /* ---- Live stats from real tasks ---- */
+  const doneAll   = TASKS.filter(t => t.progress === 'Completed').length;
+  const inrevAll  = TASKS.filter(t => t.progress === 'In review').length;
+  const ongoAll   = TASKS.filter(t => t.progress === 'Ongoing').length;
+  const pendAll   = TASKS.filter(t => t.progress === 'Pending' || t.progress === 'On hold').length;
+  const total     = TASKS.length || 1;
+  const overall   = Math.round(((doneAll + inrevAll * 0.6 + ongoAll * 0.3) / total) * 100);
+  const critical  = TASKS.filter(t => t.urgency === 'Critical' && t.progress !== 'Completed').length;
+  const atRisk    = TASKS.filter(t => (t.progress === 'Pending' || t.progress === 'On hold') && t.urgency === 'Critical').length;
+  const health    = atRisk > 2 ? 'At Risk' : overall >= 60 ? 'On Track' : 'Needs Attention';
+  const healthCls = atRisk > 2 ? 'warn' : overall >= 60 ? 'good' : 'mid';
+  const teamCnt   = new Set(TASKS.map(t => t.assignee)).size;
+
+  /* ---- Phases derived from live project data (last two projects = upcoming quarters) ---- */
+  const PHASE_META = [
+    { q: 'Q1', tag: 'Foundation', icon: '🧱' },
+    { q: 'Q2', tag: 'Growth',     icon: '📈' },
+    { q: 'Q3', tag: 'Delivery',   icon: '🚀' },
+    { q: 'Q4', tag: 'Scale',      icon: '🌐' },
   ];
+  const projPct = (pr) => {
+    const ts = TASKS.filter(t => t.project === pr.id);
+    if (!ts.length) return 0;
+    const d = ts.filter(t => t.progress === 'Completed').length;
+    const r = ts.filter(t => t.progress === 'In review').length;
+    const o = ts.filter(t => t.progress === 'Ongoing').length;
+    return Math.round(((d + r * 0.6 + o * 0.3) / ts.length) * 100);
+  };
+  const phases = PROJECTS.slice(0, 2).map((pr, i) => ({ ...PHASE_META[i], pr, pct: 100 }));
+  const upcoming = PROJECTS.slice(2).map((pr, i) => ({ ...PHASE_META[Math.min(2 + i, 3)], pr, pct: projPct(pr) }));
+
+  const statusBadge = (p) => {
+    const map = { Completed: ['✓ Done', 'ev-green'], 'In review': ['👁 Review', 'ev-blue'], Ongoing: ['▶ Active', 'ev-purple'], Pending: ['◷ Queued', 'ev-gray'], 'On hold': ['⏸ Hold', 'ev-red'] };
+    const [label, cls] = map[p] || ['—', 'ev-gray'];
+    return `<span class="rm-chip ${cls}">${label}</span>`;
+  };
+  const urgIcon = (u) => u === 'Critical' ? '<span title="Critical priority" aria-label="Critical priority">🔥</span>'
+                     : u === 'Moderate' ? '<span title="Medium priority" aria-label="Medium priority">⚡</span>' : '';
+
+  const phaseCard = (ph, isUpcoming) => {
+    const pr = ph.pr;
+    const ts = TASKS.filter(t => t.project === pr.id)
+                    .sort((a, b) => (b.comments || 0) - (a.comments || 0))
+                    .slice(0, 4);
+    const barColor = ph.pct >= 80 ? 'var(--completed)' : ph.pct >= 40 ? 'var(--accent)' : 'var(--moderate)';
+    return `
+      <article class="rm-card${isUpcoming ? ' rm-upcoming' : ''}" data-project="${pr.id}" tabindex="0" role="link" aria-label="Open project ${esc(pr.name)}">
+        <header class="rm-card-head">
+          <div class="rm-badge" aria-hidden="true">${ph.icon}</div>
+          <div class="rm-titles">
+            <div class="rm-kicker">${ph.q} · ${ph.tag}</div>
+            <h3 class="rm-name">${esc(pr.name)}</h3>
+          </div>
+          <div class="rm-ring" style="--ring:${ph.pct}" title="${ph.pct}% complete" aria-label="${ph.pct}% complete">
+            <span>${ph.pct}<em>%</em></span>
+          </div>
+        </header>
+        <div class="bar-track" aria-hidden="true"><div class="bar-fill rm-bar" style="width:${ph.pct}%;background:${barColor}"></div></div>
+        <ul class="rm-list">
+          ${ts.map(t => `
+            <li class="rm-item" data-task="${t.idx ?? t.id}">
+              <span class="rm-dot" aria-hidden="true"></span>
+              <span class="rm-item-name">${urgIcon(t.urgency)} ${esc(t.name)}</span>
+              ${statusBadge(t.progress)}
+              <span class="avatar avatar-xs" style="--a:${(personById(t.assignee) || {}).color || '#999'}" title="${esc((personById(t.assignee) || {}).name || '')}">${(personById(t.assignee) || {}).initials || '?'}</span>
+            </li>`).join('') || '<li class="rm-item muted">No tasks yet — this quarter is a blank canvas ✨</li>'}
+        </ul>
+        <footer class="rm-foot">
+          <span>${TASKS.filter(t => t.project === pr.id).length} tasks</span>
+          <span class="rm-open">Open board →</span>
+        </footer>
+      </article>`;
+  };
+
   return `
-    <section class="page-pad">
-      <div class="page-head"><h1>Roadmaps</h1><p>Strategic timeline across quarters.</p></div>
-      <div class="roadmap">
-        ${phases.map(p => `
-          <button class="rm-phase" data-goto="#/projects">
-            <div class="rm-top"><strong>${p.q}</strong> ${p.label}</div>
-            <div class="bar-track"><div class="bar-fill" style="width:${p.pct}%"></div></div>
-            <span class="rm-pct">${p.pct}% complete</span>
-          </button>`).join('')}
+    <section class="page-pad roadmap-page">
+      <div class="page-head rm-head">
+        <div>
+          <h1>Roadmaps</h1>
+          <p>Strategic timeline across quarters — live from your workspace.</p>
+        </div>
+        <div class="rm-health ${healthCls}" role="status">
+          <span class="rm-pulse" aria-hidden="true"></span>
+          <strong>${health}</strong>
+          <em>${overall}% of the year delivered</em>
+        </div>
       </div>
+
+      <div class="rm-stats" role="list">
+        <div class="rm-stat" role="listitem"><b>${total}</b><span>Total tasks</span></div>
+        <div class="rm-stat good" role="listitem"><b>${doneAll}</b><span>Completed</span></div>
+        <div class="rm-stat amber" role="listitem"><b>${ongoAll + inrevAll}</b><span>In flight</span></div>
+        <div class="rm-stat red" role="listitem"><b>${critical}</b><span>Critical open</span></div>
+        <div class="rm-stat" role="listitem"><b>${teamCnt}</b><span>Contributors</span></div>
+      </div>
+
+      <div class="rm-track" aria-label="Timeline track">
+        <div class="rm-line" aria-hidden="true"></div>
+        ${[...phases, ...upcoming].map((ph, i) => `
+          <div class="rm-node" style="--i:${i}">
+            <span class="rm-node-dot ${i < 2 ? 'done' : ''}" aria-hidden="true"></span>
+          </div>`).join('')}
+      </div>
+
+      <h2 class="rm-section-title">🏁 Shipped &amp; shipping</h2>
+      <div class="rm-grid">${phases.map(p => phaseCard(p, false)).join('')}</div>
+
+      <h2 class="rm-section-title">🔮 Upcoming quarters</h2>
+      <div class="rm-grid">${upcoming.map(p => phaseCard(p, true)).join('')}</div>
     </section>`;
 };
 
@@ -1233,26 +1330,85 @@ routes.channel = (param) => {
 routes.settings = () => {
   setCrumbs([{ label: 'TaskHive' }, { label: 'Settings' }]);
   const me = mePerson() || { name: '', email: '' };
+  const darkOn = document.documentElement.classList.contains('dark');
+  const myTasks = TASKS.filter(t => t.assignee === ME);
+  const openCnt = myTasks.filter(t => t.progress !== 'Completed').length;
+  const doneCnt = myTasks.filter(t => t.progress === 'Completed').length;
+  const unreadCnt = INBOX_ITEMS.filter(it => !readFlags[it.id]).length;
   return `
-    <section class="page-pad narrow">
-      <div class="page-head"><h1>Settings</h1></div>
-      <div class="settings-group">
-        <h3>Profile</h3>
-        <p class="muted">You are signed in as <strong>${esc(me.name || '—')}</strong>.</p>
-        <label>Display name<input id="set-name" type="text" value="${esc(me.name)}" /></label>
-        <label>Email<input id="set-email" type="email" value="${esc(me.email || '')}" /></label>
-        <label>New password<input id="set-password" type="password" placeholder="leave blank to keep current password" autocomplete="new-password" /></label>
+    <section class="page-pad settings-page">
+      <div class="page-head settings-head">
+        <div><h1>Settings</h1><p class="muted">Manage your profile, preferences and workspace.</p></div>
+        <a class="btn btn-ghost btn-sm" href="#/home">← Back to workspace</a>
       </div>
-      <div class="settings-group">
-        <h3>Preferences</h3>
-        <label class="switch-row">Email notifications<input type="checkbox" checked /></label>
-        <label class="switch-row">Weekly digest<input type="checkbox" /></label>
-        <label class="switch-row">Dark mode (preview)<input type="checkbox" id="set-dark" ${document.documentElement.classList.contains('dark') ? 'checked' : ''} /></label>
+
+      <!-- Profile hero card -->
+      <div class="settings-group st-hero">
+        <div class="st-hero-top">
+          <span class="avatar avatar-lg" style="--a:${esc(me.color || '#888')}">${esc(me.initials || '??')}</span>
+          <div class="st-hero-id">
+            <h2>${esc(me.name || '—')}</h2>
+            <p class="muted">${esc(me.email || '')}</p>
+            <span class="st-badge">Signed in</span>
+          </div>
+          <div class="st-hero-stats">
+            <div class="st-stat"><b>${openCnt}</b><span>Open tasks</span></div>
+            <div class="st-stat"><b>${doneCnt}</b><span>Completed</span></div>
+            <div class="st-stat"><b>${unreadCnt}</b><span>Unread inbox</span></div>
+          </div>
+        </div>
       </div>
-      <div class="settings-actions">
-        <button id="save-settings" class="btn btn-primary">Save changes</button>
-        <button id="logout-btn" class="btn btn-ghost">Sign out</button>
-        <button id="reset-data" class="btn btn-ghost danger">Reset demo data</button>
+
+      <div class="st-grid">
+        <!-- Account -->
+        <div class="settings-group">
+          <h3>👤 Account</h3>
+          <p class="st-desc">Your identity across the workspace. Changes save to the server.</p>
+          <label class="st-field">Display name<input id="set-name" type="text" value="${esc(me.name)}" autocomplete="name" /></label>
+          <label class="st-field">Email<input id="set-email" type="email" value="${esc(me.email || '')}" autocomplete="email" placeholder="you@company.com" /></label>
+          <label class="st-field">New password<input id="set-password" type="password" placeholder="leave blank to keep current password" autocomplete="new-password" />
+            <span class="st-hint">Used to sign in. Must be at least 4 characters if changed.</span></label>
+        </div>
+
+        <!-- Preferences -->
+        <div class="settings-group">
+          <h3>⚙️ Preferences</h3>
+          <p class="st-desc">Toggles are saved instantly and follow you on every device.</p>
+          <div class="switch-row">
+            <div><strong>Email notifications</strong><p class="muted">Assignments, mentions and reviews</p></div>
+            <label class="toggle"><input type="checkbox" id="set-email-notif" ${uiPrefs.emailNotifications ? 'checked' : ''} aria-label="Email notifications" /><span class="toggle-track"></span></label>
+          </div>
+          <div class="switch-row">
+            <div><strong>Weekly digest</strong><p class="muted">A Monday summary of your workspace</p></div>
+            <label class="toggle"><input type="checkbox" id="set-digest" ${uiPrefs.weeklyDigest ? 'checked' : ''} aria-label="Weekly digest" /><span class="toggle-track"></span></label>
+          </div>
+          <div class="switch-row">
+            <div><strong>Dark mode</strong><p class="muted">${darkOn ? 'Currently using the dark theme 🌙' : 'Currently using the light theme ☀️'}</p></div>
+            <label class="toggle"><input type="checkbox" id="set-dark" ${darkOn ? 'checked' : ''} aria-label="Dark mode" /><span class="toggle-track"></span></label>
+          </div>
+        </div>
+
+        <!-- Workspace -->
+        <div class="settings-group">
+          <h3>🗂 Workspace</h3>
+          <p class="st-desc">${PROJECTS.length} projects · ${TASKS.length} tracked issues</p>
+          <div class="switch-row">
+            <div><strong>Reset demo data</strong><p class="muted">Reload this workspace from the server copy</p></div>
+            <button id="reset-data" class="btn btn-ghost danger btn-sm">Reset</button>
+          </div>
+        </div>
+
+        <!-- Session -->
+        <div class="settings-group">
+          <h3>🔐 Session</h3>
+          <p class="st-desc">You're signed in as <strong>${esc(me.name || '—')}</strong>. Signing out clears your session cookie on this device.</p>
+          <button id="logout-btn" class="btn btn-ghost">Sign out</button>
+        </div>
+      </div>
+
+      <div class="settings-actions st-savebar">
+        <button id="save-settings" class="btn btn-primary">Save account changes</button>
+        <span class="muted st-savenote">Preference toggles save automatically.</span>
       </div>
     </section>`;
 };
@@ -1732,11 +1888,11 @@ document.body.addEventListener('submit', (e) => {
   }
 });
 
-/* Dark-mode preview toggle (persisted) */
+/* Theme toggles (dark mode + notification prefs), persisted per-user on the server */
 document.body.addEventListener('change', (e) => {
-  if (e.target.id === 'set-dark') {
-    toggleDarkMode(e.target.checked);
-  }
+  if (e.target.id === 'set-dark') { toggleDarkMode(e.target.checked); return; }
+  if (e.target.id === 'set-email-notif') { uiPrefs.emailNotifications = e.target.checked; patchPrefs(); toast(e.target.checked ? '📧 Email notifications on' : 'Email notifications off'); return; }
+  if (e.target.id === 'set-digest')      { uiPrefs.weeklyDigest = e.target.checked;         patchPrefs(); toast(e.target.checked ? '🗓 Weekly digest on' : 'Weekly digest off'); return; }
 });
 
 function toggleDarkMode(force) {
@@ -1744,6 +1900,8 @@ function toggleDarkMode(force) {
   const on = typeof force === 'boolean' ? force : !html.classList.contains('dark');
   html.classList.toggle('dark', on);
   try { localStorage.setItem('darkMode', on ? '1' : '0'); } catch (_) {}
+  uiPrefs.darkMode = on;
+  if (ME) patchPrefs(); // persist per-user theme to the backend
   const cb = document.getElementById('set-dark');
   if (cb) cb.checked = on;
   toast(on ? '🌙 Dark mode on' : '☀️ Light mode on');
@@ -1754,7 +1912,8 @@ function toggleDarkMode(force) {
 (function applySavedDarkMode() {
   let on = false;
   try { on = localStorage.getItem('darkMode') === '1'; } catch (_) {}
-  document.documentElement.classList.toggle('dark', on);
+  // Server-persisted preference wins once bootstrap has run (_themeFromServer).
+  if (!_themeFromServer) document.documentElement.classList.toggle('dark', on);
 })();
 
 /* Boot: hydrate in-memory state from GET /api/bootstrap, then render.
@@ -1795,6 +1954,12 @@ async function loadBootstrap() {
     // server prefs win over the stale localStorage cache
     savedIds = Array.isArray(d.savedIds) ? d.savedIds.filter(x => typeof x === 'string') : [];
     readFlags = (d.readFlags && typeof d.readFlags === 'object') ? d.readFlags : {};
+    if (d.ui && typeof d.ui === 'object') uiPrefs = { ...uiPrefs, ...d.ui };
+    // Apply server-persisted theme once per session (before first paint of settings)
+    if (uiPrefs.darkMode !== null) {
+      document.documentElement.classList.toggle('dark', !!uiPrefs.darkMode);
+      _themeFromServer = true;
+    }
     INBOX_ITEMS.forEach(it => { if (it.unread === false) readFlags[it.id] = true; });
     persist(); // push merged prefs back into the per-user cache/server copy
     nextTaskNum = Math.max(100, ...TASKS.map(t => parseInt(String(t.id).replace(/\D/g, ''), 10) || 0)) + 1;
