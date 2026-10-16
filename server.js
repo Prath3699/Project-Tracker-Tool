@@ -23,13 +23,17 @@ const PORT = Number(process.argv[2] || process.env.PORT || 3000);
 /* Storage layer (simple JSON-file "database" with atomic writes)      */
 /* ------------------------------------------------------------------ */
 
+/* Demo credentials: each seeded person logs in with `password`.
+ * A real deployment would store scrypt hashes instead of plain demo passwords. */
+const DEMO_PASSWORD = 'password';
+
 function seedData() {
   const people = [
-    { id: 'p1', name: 'Parth Sharma', initials: 'PT', color: '#43b3ff' },
-    { id: 'p2', name: 'David Lee',    initials: 'DL', color: '#ffa575' },
-    { id: 'p3', name: 'Maya Chen',    initials: 'MC', color: '#7b60ff' },
-    { id: 'p4', name: 'Alex Kim',     initials: 'AK', color: '#3eb957' },
-    { id: 'p5', name: 'Sara Noor',    initials: 'SN', color: '#db672d' },
+    { id: 'p1', name: 'Parth Sharma', initials: 'PT', color: '#43b3ff', email: 'parth@catlas.inc',   password: DEMO_PASSWORD },
+    { id: 'p2', name: 'David Lee',    initials: 'DL', color: '#ffa575', email: 'david@catlas.inc',   password: DEMO_PASSWORD },
+    { id: 'p3', name: 'Maya Chen',    initials: 'MC', color: '#7b60ff', email: 'maya@catlas.inc',    password: DEMO_PASSWORD },
+    { id: 'p4', name: 'Alex Kim',     initials: 'AK', color: '#3eb957', email: 'alex@catlas.inc',    password: DEMO_PASSWORD },
+    { id: 'p5', name: 'Sara Noor',    initials: 'SN', color: '#db672d', email: 'sara@catlas.inc',    password: DEMO_PASSWORD },
   ];
 
   const projects = [
@@ -121,8 +125,7 @@ function seedData() {
     inbox,
     discussions: {},  // taskId -> [{ who, initials, color, text, at }]
     messages: channelMessages,   // channelId -> [{ who, initials, color, text, time }]
-    savedIds: [],
-    readFlags: {},
+    prefsByUser: {},             // userId -> { savedIds: [], readFlags: {} } (per-user preferences)
   };
 }
 
@@ -135,9 +138,32 @@ function migrate(d) {
   if (!Array.isArray(d.inbox)) d.inbox = seed.inbox;
   if (!d.discussions || typeof d.discussions !== 'object') d.discussions = {};
   if (!d.messages || typeof d.messages !== 'object') d.messages = seed.messages;
-  if (!Array.isArray(d.savedIds)) d.savedIds = [];
-  if (!d.readFlags || typeof d.readFlags !== 'object') d.readFlags = {};
+  /* Phase 2: per-user prefs replace the old single global savedIds/readFlags. */
+  if (!d.prefsByUser || typeof d.prefsByUser !== 'object') {
+    d.prefsByUser = {};
+    const legacySaved = Array.isArray(d.savedIds) ? d.savedIds : [];
+    const legacyRead  = (d.readFlags && typeof d.readFlags === 'object') ? d.readFlags : {};
+    if (legacySaved.length || Object.keys(legacyRead).length) {
+      const owner = (Array.isArray(d.people) && d.people[0]) ? d.people[0].id : 'p1';
+      d.prefsByUser[owner] = { savedIds: legacySaved, readFlags: legacyRead };
+    }
+  }
+  delete d.savedIds;
+  delete d.readFlags;
+  /* Phase 2: make sure every person has login credentials + an email. */
+  d.people.forEach((p, i) => {
+    if (!p.email) p.email = `${String(p.name || 'user' + i).toLowerCase().replace(/[^a-z0-9]+/g, '.')}@catlas.inc`;
+    if (!p.password) p.password = DEMO_PASSWORD;
+  });
   return d;
+}
+
+function userPrefs(uid) {
+  if (!db.prefsByUser[uid]) db.prefsByUser[uid] = { savedIds: [], readFlags: {} };
+  const pr = db.prefsByUser[uid];
+  if (!Array.isArray(pr.savedIds)) pr.savedIds = [];
+  if (!pr.readFlags || typeof pr.readFlags !== 'object') pr.readFlags = {};
+  return pr;
 }
 
 function loadDb() {
@@ -236,6 +262,70 @@ function nextIdx() {           // stable internal numeric key for deep links / s
 }
 
 /* ------------------------------------------------------------------ */
+/* Sessions & auth (Phase 2)                                           */
+/* ------------------------------------------------------------------ */
+
+const COOKIE_NAME = 'taskhive_session';
+const SESSION_TTL_MS = 7 * 24 * 3600e3; // one week
+const sessions = new Map();             // token -> { userId, expires }
+
+function parseCookies(req) {
+  const out = {};
+  (req.headers.cookie || '').split(';').forEach(kv => {
+    const i = kv.indexOf('=');
+    if (i > -1) out[kv.slice(0, i).trim()] = decodeURIComponent(kv.slice(i + 1).trim());
+  });
+  return out;
+}
+
+function createSession(userId) {
+  const token = crypto.randomBytes(24).toString('hex');
+  sessions.set(token, { userId, expires: Date.now() + SESSION_TTL_MS });
+  return token;
+}
+
+function destroySession(token) { sessions.delete(token); }
+
+function currentUser(req) {
+  const tok = parseCookies(req)[COOKIE_NAME];
+  if (!tok) return null;
+  const s = sessions.get(tok);
+  if (!s) return null;
+  if (s.expires < Date.now()) { sessions.delete(tok); return null; }
+  return db.people.find(p => p.id === s.userId) || null;
+}
+
+function sessionCookie(token, maxAgeSec) {
+  return `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}`;
+}
+
+/* Public view of a person — never leaks the password field. */
+function publicPerson(p) {
+  const { password, ...rest } = p;
+  return rest;
+}
+
+/* Routes that mutate workspace data require an authenticated session. */
+const PROTECTED_ROUTES = [
+  ['POST',   /^tasks$/],   ['PATCH',  /^tasks\/.+$/],  ['PUT',  /^tasks\/.+$/], ['DELETE', /^tasks\/.+$/],
+  ['PATCH',  /^board$/],
+  ['POST',   /^projects$/], ['PATCH', /^projects\/.+$/], ['PUT', /^projects\/.+$/], ['DELETE', /^projects\/.+$/],
+  ['POST',   /^channels\/.+$/],
+  ['POST',   /^discussions\/.+$/],
+  ['PATCH',  /^prefs$/],   ['PUT',    /^prefs$/],
+  ['PATCH',  /^inbox\/.+$/], ['DELETE', /^inbox\/.+$/],
+  ['PATCH',  /^people\/.+$/], ['PUT', /^people\/.+$/],
+];
+
+function requireAuth(method, key, user, res) {
+  const needed = PROTECTED_ROUTES.some(([m, re]) => m === method && re.test(key));
+  if (!needed) return true;
+  if (user) return true;
+  send(res, 401, { error: 'authentication required', login: '/api/login' });
+  return false;
+}
+
+/* ------------------------------------------------------------------ */
 /* API routes                                                          */
 /* ------------------------------------------------------------------ */
 
@@ -244,51 +334,127 @@ async function handleApi(req, res, url) {
   const seg = parts[0] || '';
   const param = parts[1];
   const method = req.method;
+  const routeKey = parts.join('/');
+  const user = currentUser(req);
+
+  /* --- auth --- */
+  if (seg === 'login' && method === 'POST') {
+    const b = await readBody(req);
+    const email = String(b.email || '').trim().toLowerCase();
+    const person = db.people.find(p => p.email && p.email.toLowerCase() === email);
+    if (!person || person.password !== String(b.password || '')) {
+      return send(res, 401, { error: 'Invalid email or password' });
+    }
+    const token = createSession(person.id);
+    return send(res, 200, { user: publicPerson(person) }, { 'Set-Cookie': sessionCookie(token, SESSION_TTL_MS / 1000) });
+  }
+  if (seg === 'logout' && method === 'POST') {
+    const tok = parseCookies(req)[COOKIE_NAME];
+    if (tok) destroySession(tok);
+    return send(res, 200, { ok: true }, { 'Set-Cookie': sessionCookie('deleted', 0) });
+  }
+  if (seg === 'session' && method === 'GET') {
+    return send(res, 200, user ? { user: publicPerson(user) } : { user: null });
+  }
+  if (seg === 'signup' && method === 'POST') {
+    const b = await readBody(req);
+    const name = String(b.name || '').trim().slice(0, 80);
+    const email = String(b.email || '').trim().toLowerCase();
+    const password = String(b.password || '');
+    if (!name || !/^\S+@\S+\.\S+$/.test(email) || password.length < 4) {
+      return send(res, 400, { error: 'Valid name, email and a password (≥4 chars) are required' });
+    }
+    if (db.people.some(p => p.email && p.email.toLowerCase() === email)) {
+      return send(res, 409, { error: 'That email is already registered' });
+    }
+    const initials = name.split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
+    const palette = ['#43b3ff', '#ffa575', '#7b60ff', '#3eb957', '#db672d', '#e34a8f', '#2fbcb0'];
+    const person = {
+      id: 'p' + (db.people.reduce((m, p) => Math.max(m, Number(String(p.id).replace(/\D/g, '')) || 0), 0) + 1),
+      name, initials, color: palette[db.people.length % palette.length], email, password,
+    };
+    db.people.push(person);
+    saveDbSync();
+    const token = createSession(person.id);
+    return send(res, 201, { user: publicPerson(person) }, { 'Set-Cookie': sessionCookie(token, SESSION_TTL_MS / 1000) });
+  }
+
+  if (!requireAuth(method, routeKey, user, res)) return;
 
   /* --- bootstrap: everything the frontend needs in one call --- */
   if (seg === 'bootstrap' && method === 'GET') {
+    const prefs = user ? userPrefs(user.id) : { savedIds: [], readFlags: {} };
     return send(res, 200, {
-      people: db.people,
+      user: user ? publicPerson(user) : null,
+      people: db.people.map(publicPerson),
       projects: db.projects.map(p => ({
         ...p,
         open: db.tasks.filter(t => t.project === p.id && t.progress !== 'Completed').length,
       })),
       tasks: db.tasks,
-      inbox: db.inbox.map(it => ({ ...it, unread: !db.readFlags[it.id] })),
+      inbox: db.inbox.map(it => ({ ...it, unread: !prefs.readFlags[it.id] })),
       discussions: db.discussions,
       messages: db.messages,
-      savedIds: db.savedIds,
-      readFlags: db.readFlags,
+      savedIds: prefs.savedIds,
+      readFlags: prefs.readFlags,
     });
   }
 
   /* --- people --- */
-  if (seg === 'people' && method === 'GET' && !param) {
-    return send(res, 200, db.people);
+  if (seg === 'people') {
+    if (method === 'GET' && !param) return send(res, 200, db.people.map(publicPerson));
+    if (param) {
+      const p = db.people.find(x => x.id === param);
+      if (!p) return send(res, 404, { error: 'person not found' });
+      if (method === 'GET') return send(res, 200, publicPerson(p));
+      if (method === 'PATCH' || method === 'PUT') {
+        if (!user || user.id !== p.id) return send(res, 403, { error: 'you can only edit your own profile' });
+        const b = await readBody(req);
+        if (typeof b.name === 'string' && b.name.trim()) {
+          p.name = b.name.trim().slice(0, 80);
+          p.initials = p.name.split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
+        }
+        if (typeof b.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(b.color)) p.color = b.color;
+        if (typeof b.email === 'string' && /^\S+@\S+\.\S+$/.test(b.email.trim())) p.email = b.email.trim().toLowerCase();
+        if (b.password !== undefined) {
+          const np = String(b.password);
+          if (np.length < 4) return send(res, 400, { error: 'password must be at least 4 characters' });
+          p.password = np;
+        }
+        saveDb();
+        return send(res, 200, publicPerson(p));
+      }
+      return send(res, 405, { error: 'method not allowed' });
+    }
   }
 
-  /* --- inbox (server-persisted notifications + read flags) --- */
+  /* --- inbox (server-persisted notifications + per-user read flags) --- */
   if (seg === 'inbox') {
+    const prefs = user ? userPrefs(user.id) : { savedIds: [], readFlags: {} };
     if (method === 'GET' && !param) {
-      return send(res, 200, db.inbox.map(it => ({ ...it, unread: !db.readFlags[it.id] })));
+      return send(res, 200, db.inbox.map(it => ({ ...it, unread: !prefs.readFlags[it.id] })));
     }
     if (method === 'PATCH' && param === 'read-all') {
-      db.inbox.forEach(it => { db.readFlags[it.id] = true; });
+      if (!user) return send(res, 401, { error: 'authentication required' });
+      const pr = userPrefs(user.id);
+      db.inbox.forEach(it => { pr.readFlags[it.id] = true; });
       saveDb();
       return send(res, 200, { ok: true });
     }
     const it = db.inbox.find(x => x.id === param);
     if (!it) return send(res, 404, { error: 'inbox item not found' });
     if (method === 'PATCH' || method === 'PUT') {
+      if (!user) return send(res, 401, { error: 'authentication required' });
+      const pr = userPrefs(user.id);
       const b = await readBody(req);
-      if (b.unread === false || b.read === true) db.readFlags[it.id] = true;
-      if (b.unread === true) delete db.readFlags[it.id];
+      if (b.unread === false || b.read === true) pr.readFlags[it.id] = true;
+      if (b.unread === true) delete pr.readFlags[it.id];
       saveDb();
-      return send(res, 200, { ...it, unread: !db.readFlags[it.id] });
+      return send(res, 200, { ...it, unread: !pr.readFlags[it.id] });
     }
     if (method === 'DELETE') {
       db.inbox = db.inbox.filter(x => x.id !== param);
-      delete db.readFlags[param];
+      Object.values(db.prefsByUser).forEach(pr => { delete pr.readFlags[param]; });
       saveDb();
       return send(res, 200, { deleted: true, id: param });
     }
@@ -304,9 +470,10 @@ async function handleApi(req, res, url) {
       if (!b.text || !String(b.text).trim()) return send(res, 400, { error: 'text is required' });
       if (!db.tasks.some(t => t.id === param)) return send(res, 404, { error: 'task not found' });
       const c = {
-        who: String(b.who || 'You'),
-        initials: String(b.initials || 'YO'),
-        color: String(b.color || '#43b3ff'),
+        by: user ? user.id : null,
+        who: user ? user.name : String(b.who || 'Anonymous'),
+        initials: user ? user.initials : String(b.initials || '??'),
+        color: user ? user.color : String(b.color || '#888'),
         text: String(b.text).trim().slice(0, 2000),
         at: new Date().toISOString(),
       };
@@ -332,7 +499,8 @@ async function handleApi(req, res, url) {
       if (!b.name || !String(b.name).trim()) return send(res, 400, { error: 'name is required' });
       const id = String(b.name).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
         + '-' + crypto.randomBytes(2).toString('hex');
-      const proj = { id, name: String(b.name).trim(), desc: String(b.desc || ''), members: Array.isArray(b.members) ? b.members : [] };
+      const proj = { id, name: String(b.name).trim(), desc: String(b.desc || ''), members: Array.isArray(b.members) ? b.members : (user ? [user.id] : []) };
+      if (user && !proj.members.includes(user.id)) proj.members.push(user.id);
       db.projects.push(proj);
       saveDb();
       return send(res, 201, proj);
@@ -419,7 +587,7 @@ async function handleApi(req, res, url) {
     }
     if (method === 'DELETE') {
       const [removed] = db.tasks.splice(idx, 1);
-      db.savedIds = db.savedIds.filter(id => id !== removed.id);
+      Object.values(db.prefsByUser).forEach(pr => { pr.savedIds = pr.savedIds.filter(id => id !== removed.id); });
       saveDb();
       return send(res, 200, { deleted: true, id: removed.id });
     }
@@ -438,15 +606,17 @@ async function handleApi(req, res, url) {
     return send(res, 200, { ok: true });
   }
 
-  /* --- saved items / read flags (user prefs) --- */
+  /* --- saved items / read flags (per-user prefs) --- */
   if (seg === 'prefs') {
-    if (method === 'GET') return send(res, 200, { savedIds: db.savedIds, readFlags: db.readFlags });
+    if (!user) return send(res, 401, { error: 'authentication required' });
+    const pr = userPrefs(user.id);
+    if (method === 'GET') return send(res, 200, { savedIds: pr.savedIds, readFlags: pr.readFlags });
     if (method === 'PATCH' || method === 'PUT') {
       const b = await readBody(req);
-      if (Array.isArray(b.savedIds)) db.savedIds = b.savedIds.filter(x => typeof x === 'string');
-      if (b.readFlags && typeof b.readFlags === 'object') db.readFlags = b.readFlags;
+      if (Array.isArray(b.savedIds)) pr.savedIds = b.savedIds.filter(x => typeof x === 'string');
+      if (b.readFlags && typeof b.readFlags === 'object') pr.readFlags = b.readFlags;
       saveDb();
-      return send(res, 200, { savedIds: db.savedIds, readFlags: db.readFlags });
+      return send(res, 200, { savedIds: pr.savedIds, readFlags: pr.readFlags });
     }
     return send(res, 405, { error: 'method not allowed' });
   }
@@ -460,9 +630,10 @@ async function handleApi(req, res, url) {
       const b = await readBody(req);
       if (!b.text || !String(b.text).trim()) return send(res, 400, { error: 'text is required' });
       const msg = {
-        who: String(b.who || 'You'),
-        initials: String(b.initials || 'YO'),
-        color: String(b.color || '#43b3ff'),
+        by: user ? user.id : null,
+        who: user ? user.name : String(b.who || 'Anonymous'),
+        initials: user ? user.initials : String(b.initials || '??'),
+        color: user ? user.color : String(b.color || '#888'),
         text: String(b.text).trim().slice(0, 2000),
         time: new Date().toTimeString().slice(0, 5),
       };
@@ -519,7 +690,8 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
   // CORS (permissive, handy for local dev / separate frontend hosting)
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,PUT,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
@@ -534,16 +706,20 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (url.pathname === '/api' || url.pathname === '/api/') {
-    return send(res, 200, { name: 'Issue Tracker API', version: 1, endpoints: [
+    return send(res, 200, { name: 'Issue Tracker API', version: 2, endpoints: [
+      'POST   /api/login               POST /api/logout          GET /api/session',
+      'POST   /api/signup',
       'GET    /api/bootstrap',
-      'GET    /api/people',
+      'GET    /api/people              GET/PATCH /api/people/:id',
       'GET    /api/projects            POST /api/projects',
       'GET    /api/projects/:id        PATCH /api/projects/:id  DELETE /api/projects/:id',
       'GET    /api/tasks?project=&progress=&urgency=&assignee=&q=',
       'POST   /api/tasks               GET/PATCH/DELETE /api/tasks/:id',
       'PATCH  /api/board               (bulk reorder)',
-      'GET    /api/prefs               PATCH /api/prefs',
+      'GET    /api/prefs               PATCH /api/prefs  (per-user)',
       'GET    /api/channels/:id        POST /api/channels/:id',
+      'GET    /api/discussions/:taskId POST /api/discussions/:taskId',
+      'GET    /api/inbox               PATCH /api/inbox/:id  PATCH /api/inbox/read-all',
     ]});
   }
   serveStatic(req, res, url);
