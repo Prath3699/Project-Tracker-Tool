@@ -1,18 +1,21 @@
-const { chromium } = require('playwright');
 const EXE = '/root/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell';
+const { chromium } = require('playwright');
 (async () => {
-  const browser = await chromium.launch({ executablePath: EXE });
-  const page = await (await browser.newContext()).newPage();
-  page.on('console', m => console.log('PAGE:', m.text()));
-  await page.goto('http://localhost:8090/index.html#/mytasks', {waitUntil:'networkidle0'});
-  await new Promise(r=>setTimeout(r,400));
-  await page.evaluate(() => {
-    document.addEventListener('click', e => {
-      const card = e.target.closest('.mtask-card');
-      if (card) console.log('CARD CLICKED, dataset=' + JSON.stringify({...card.dataset}) + ' closest-with-id=' + !!e.target.closest('[id],[data-goto],[data-calday],[data-project],[data-inbox],[data-attachment],[data-person],[data-plan]'));
-    }, true); // capture phase to see before delegation
-  });
-  await page.click('.mtask-card[data-status="In review"]');
-  await new Promise(r=>setTimeout(r,500));
-  await browser.close();
+  const b = await chromium.launch({ executablePath: EXE });
+  const p = await b.newPage();
+  await p.goto('http://localhost:3000', { waitUntil: 'networkidle' });
+  await p.click('#show-signup'); await p.waitForTimeout(200);
+  await p.fill('#signup-name', 'Ada Lovelace');
+  await p.fill('#signup-email', `ada${Date.now()}@catlas.inc`);
+  await p.fill('#signup-password', 'calculus');
+  await p.click('#signup-form button[type=submit]');
+  await p.waitForTimeout(2500);
+  console.log('pageEl exists:', !!(await p.$('#page')) || await p.evaluate(() => typeof pageEl !== 'undefined' && !!pageEl));
+  console.log('pageEl innerHTML len:', await p.evaluate(() => typeof pageEl !== 'undefined' && pageEl ? pageEl.innerHTML.length : 'n/a'));
+  console.log('page text sample:', await p.evaluate(() => typeof pageEl !== 'undefined' && pageEl ? pageEl.textContent.slice(0,150) : 'n/a'));
+  console.log('task-table present:', !!(await p.$('.task-table')));
+  console.log('any tables:', await p.$$eval('table', t => t.length).catch(()=>0));
+  console.log('body classList:', await p.evaluate(() => document.body.className));
+  console.log('currentRoute:', await p.evaluate(() => typeof currentRoute !== 'undefined' ? currentRoute : 'n/a'));
+  await b.close();
 })();
