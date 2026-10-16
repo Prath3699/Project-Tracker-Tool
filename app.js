@@ -445,7 +445,7 @@ function taskRowHtml(t) {
         <div class="assignee">
           <button class="avatar link-avatar" style="--a:${p.color}" data-person="${t.assignee}" title="${p.name}">${p.initials}</button>
           <span class="assignee-name">${p.name}</span>
-          ${t.comments ? `<span class="assignee-name" title="${t.comments} comments">💬 ${t.comments}</span>` : ''}
+          ${t.comments ? `<span class="comment-count" title="${t.comments} comments">💬 ${t.comments}</span>` : ''}
         </div>
       </td>
       <td class="row-actions">

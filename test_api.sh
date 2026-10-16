@@ -11,7 +11,7 @@ echo "== delete =="; curl -s -X DELETE $B/tasks/$TID; echo
 echo "== prefs =="; curl -s -X PATCH $B/prefs -d '{"savedIds":["TSK-8"],"readFlags":{"inbox-1":true}}'; echo
 echo "== channel msg =="; curl -s -X POST $B/channels/engineering -d '{"text":"hello from backend test"}'; echo
 echo "== channel get =="; curl -s $B/channels/engineering; echo
-echo "== board reorder =="; curl -s -X PATCH $B/board -d '{"order":["TSK-20","TSK-8"]}'; echo
+echo "== board reorder =="; curl -s -X PATCH $B/board -d '{"order":["TSK-101","TSK-100","TSK-22"]}'; echo
 echo "== bad reorder id (expect 400) =="; curl -s -o /dev/null -w '%{http_code}\n' -X PATCH $B/board -d '{"order":["NOPE"]}'
 echo "== unknown endpoint (expect 404) =="; curl -s -o /dev/null -w '%{http_code}\n' $B/nope
 echo "== static index (expect 200 html) =="; curl -s -o /dev/null -w '%{http_code} %{content_type}\n' http://localhost:3000/index.html
