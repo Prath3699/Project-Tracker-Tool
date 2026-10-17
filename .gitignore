@@ -1,1 +1,6 @@
+node_modules/
+data/
+*.out
+*.log
 server.out
+api.out
