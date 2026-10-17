@@ -139,6 +139,11 @@ const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt
 let savedIds = [];     // task ids (strings) — canonical copy lives on the server (/api/prefs)
 let readFlags = {};    // inbox item id -> true (server-persisted; localStorage is a fast cache)
 let uiPrefs = { darkMode: null, emailNotifications: true, weeklyDigest: false }; // per-user UI toggles (server-persisted)
+
+/* Toggle state is single-sourced from uiPrefs (the server-persisted object),
+   so every re-render paints the checkboxes exactly as the app believes them to
+   be — independent per setting, no cross-talk, correct after nav/reload. */
+const toggleState = (key) => !!uiPrefs[key];
 let _themeFromServer = false; // true once the server-stored theme has been applied this session
 let nextTaskNum = 100; // provisional TSK-### counter for optimistic rows; server assigns the real id
 let sortState = { key: null, dir: 1 };
@@ -1401,15 +1406,15 @@ routes.settings = () => {
           <p class="st-desc">Toggles are saved instantly and follow you on every device.</p>
           <div class="switch-row">
             <div><strong>Email notifications</strong><p class="muted">Assignments, mentions and reviews</p></div>
-            <label class="toggle"><input type="checkbox" id="set-email-notif" ${uiPrefs.emailNotifications ? 'checked' : ''} aria-label="Email notifications" /><span class="toggle-track"></span></label>
+            <label class="toggle"><input type="checkbox" role="switch" id="set-email-notif" ${toggleState('emailNotifications') ? 'checked' : ''} aria-checked="${toggleState('emailNotifications')}" aria-label="Email notifications" /><span class="toggle-track"></span></label>
           </div>
           <div class="switch-row">
             <div><strong>Weekly digest</strong><p class="muted">A Monday summary of your workspace</p></div>
-            <label class="toggle"><input type="checkbox" id="set-digest" ${uiPrefs.weeklyDigest ? 'checked' : ''} aria-label="Weekly digest" /><span class="toggle-track"></span></label>
+            <label class="toggle"><input type="checkbox" role="switch" id="set-digest" ${toggleState('weeklyDigest') ? 'checked' : ''} aria-checked="${toggleState('weeklyDigest')}" aria-label="Weekly digest" /><span class="toggle-track"></span></label>
           </div>
           <div class="switch-row">
             <div><strong>Dark mode</strong><p class="muted">${darkOn ? 'Currently using the dark theme 🌙' : 'Currently using the light theme ☀️'}</p></div>
-            <label class="toggle"><input type="checkbox" id="set-dark" ${darkOn ? 'checked' : ''} aria-label="Dark mode" /><span class="toggle-track"></span></label>
+            <label class="toggle"><input type="checkbox" role="switch" id="set-dark" ${darkOn ? 'checked' : ''} aria-checked="${darkOn}" aria-label="Dark mode" /><span class="toggle-track"></span></label>
           </div>
         </div>
 
@@ -1978,11 +1983,28 @@ document.body.addEventListener('submit', (e) => {
   }
 });
 
-/* Theme toggles (dark mode + notification prefs), persisted per-user on the server */
+/* Theme toggles (dark mode + notification prefs), persisted per-user on the server.
+   'change' is the single source of truth: one handler per toggle, independent
+   state keys inside uiPrefs — flipping one setting never touches the others. */
 document.body.addEventListener('change', (e) => {
-  if (e.target.id === 'set-dark') { toggleDarkMode(e.target.checked); return; }
-  if (e.target.id === 'set-email-notif') { uiPrefs.emailNotifications = e.target.checked; patchPrefs(); toast(e.target.checked ? '📧 Email notifications on' : 'Email notifications off'); return; }
-  if (e.target.id === 'set-digest')      { uiPrefs.weeklyDigest = e.target.checked;         patchPrefs(); toast(e.target.checked ? '🗓 Weekly digest on' : 'Weekly digest off'); return; }
+  const cb = e.target;
+  if (!cb || !cb.matches || !cb.matches('.toggle input[type="checkbox"]')) return;
+  // keep aria-checked in sync with the visual/semantic switch state
+  cb.setAttribute('aria-checked', String(cb.checked));
+  if (cb.id === 'set-dark') { toggleDarkMode(cb.checked); return; }
+  if (cb.id === 'set-email-notif') { uiPrefs.emailNotifications = cb.checked; patchPrefs(); toast(cb.checked ? '📧 Email notifications on' : 'Email notifications off'); return; }
+  if (cb.id === 'set-digest')      { uiPrefs.weeklyDigest = cb.checked;         patchPrefs(); toast(cb.checked ? '🗓 Weekly digest on' : 'Weekly digest off'); return; }
+});
+
+/* Keyboard support: Space activates checkboxes natively; add Enter so the
+   switch also behaves like a role="switch" control. */
+document.body.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  const cb = e.target;
+  if (!cb || !cb.matches || !cb.matches('.toggle input[type="checkbox"]')) return;
+  e.preventDefault();
+  cb.checked = !cb.checked;
+  cb.dispatchEvent(new Event('change', { bubbles: true }));
 });
 
 function toggleDarkMode(force) {
@@ -1993,7 +2015,9 @@ function toggleDarkMode(force) {
   uiPrefs.darkMode = on;
   if (ME) patchPrefs(); // persist per-user theme to the backend
   const cb = document.getElementById('set-dark');
-  if (cb) cb.checked = on;
+  if (cb) { cb.checked = on; cb.setAttribute('aria-checked', String(on)); }
+  const desc = cb && cb.closest('.switch-row')?.querySelector('p.muted');
+  if (desc) desc.textContent = on ? 'Currently using the dark theme 🌙' : 'Currently using the light theme ☀️';
   toast(on ? '🌙 Dark mode on' : '☀️ Light mode on');
 }
 

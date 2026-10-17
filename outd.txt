@@ -1,0 +1,3 @@
+modal hidden? modal-overlay hidden
+confirm count: 0
+modal title: New feature
