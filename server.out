@@ -1,4 +1,3 @@
-nohup: ignoring input
 Issue Tracker backend running at http://localhost:3000
   API base:  http://localhost:3000/api
-  Data file: /tmp/th_disk2/db.json
+  Data file: /workspace/data/db.json

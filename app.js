@@ -66,7 +66,10 @@ const ATTACHMENTS = [
 
 /* ============================ BACKEND API CLIENT ============================ */
 
-const API_BASE = '/api';
+// API base: same-origin by default (backend serves frontend). If you split hosting
+// (e.g. Netlify for UI + Render for API), set window.TASKHIVE_API in an inline script
+// before app.js loads, e.g. <script>window.TASKHIVE_API='https://taskhive-api.onrender.com'</script>
+const API_BASE = (window.TASKHIVE_API || '') + '/api';
 
 async function api(method, path, body) {
   const res = await fetch(API_BASE + path, {
