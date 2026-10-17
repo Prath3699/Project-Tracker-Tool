@@ -4,12 +4,15 @@
   "private": true,
   "description": "TaskHive — issue tracker & team task management (zero-dep Node backend + SPA frontend)",
   "main": "server.js",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node server.js",
     "test:api": "bash test_api.sh"
   },
   "dependencies": {
+    "@netlify/blobs": "^10.7.13",
     "better-sqlite3": "^12.11.1"
   }
 }

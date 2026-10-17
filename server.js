@@ -15,6 +15,19 @@ const path = require('path');
 const crypto = require('crypto');
 
 const ROOT = __dirname;
+
+/* ------------------------------------------------------------------ */
+/* Netlify serverless entry (deploy/netlify.mjs)                      */
+/* ------------------------------------------------------------------ */
+/* When required as a module (e.g. by the Netlify Function wrapper), we skip
+ * the local HTTP server bootstrap and expose only the pure API handler +
+ * the durable-storage adapter hooks. All persistence on Netlify goes through
+ * an injected KV store (Netlify Blobs) instead of SQLite/filesystem, since
+ * serverless disk is read-only/ephemeral. */
+const IS_MODULE = !!process.env.TASKHIVE_NO_LISTEN;
+let kv = null; // { get(key):Promise<string|null>, put(key,val):Promise<void>, del?(key) }
+function setKV(store) { kv = store; }
+
 /* Durable storage location. On Render's free tier the container filesystem is
  * ephemeral, so render.yaml mounts a persistent Disk at /var/data and sets
  * TASKHIVE_DATA_DIR accordingly. Locally it defaults to ./data. */
@@ -28,7 +41,7 @@ const PORT = Number(process.argv[2] || process.env.PORT || 3000);
 /* ------------------------------------------------------------------ */
 
 let sqlite = null;
-try {
+if (!IS_MODULE) try {
   const Driver = require('better-sqlite3');
   fs.mkdirSync(DATA_DIR, { recursive: true });
   sqlite = new Driver(SQLITE_FILE);
@@ -318,6 +331,7 @@ function userPrefs(uid) {
 }
 
 function loadDb() {
+  if (IS_MODULE) return;   // serverless: loaded asynchronously via loadDbAsync(kv)
   if (sqlite) {
     /* Durable store first; fall back to the legacy JSON file, then to seed. */
     try {
@@ -336,10 +350,22 @@ function loadDb() {
 
 let saveTimer = null;
 function saveDb() {            // debounced durable write
+  if (IS_MODULE) return pendingSave();   // serverless: no timers — explicit flush per invocation
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(saveDbSync, 50);
 }
+/* Serverless path: mark the document dirty; `flushSaves()` persists it before
+ * the function invocation freezes/returns. */
+let kvDirty = false;
+function pendingSave() { kvDirty = true; }
+async function flushSaves() {
+  if (!IS_MODULE) { if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; } saveDbSync(); return; }
+  if (!kv || !kvDirty) return;
+  kvDirty = false;
+  await kv.put('doc', JSON.stringify(db));
+}
 function saveDbSync() {
+  if (IS_MODULE) { pendingSave(); return; }   // module mode never touches disk
   fs.mkdirSync(DATA_DIR, { recursive: true });
   const json = JSON.stringify(db, null, 2);
   if (sqlite) {
@@ -356,6 +382,20 @@ function saveDbSync() {
   fs.renameSync(tmp, DB_FILE); // atomic swap
 }
 
+/* Serverless bootstrap (Netlify): load the document from an injected KV store,
+ * seeding it on first run. Safe to call repeatedly — subsequent invocations of
+ * a warm container reuse the in-memory db unless `force` is set. */
+let kvLoaded = false;
+async function loadDbAsync(store, force) {
+  setKV(store);
+  if (kvLoaded && !force) return;
+  const raw = await store.get('doc');
+  if (raw) { db = migrate(JSON.parse(raw)); }
+  else { db = seedData(); }
+  kvLoaded = true;
+  kvDirty = !raw;               // persist the seed on first invocation
+}
+
 loadDb();
 initTaskTable();
 syncTaskTable();
@@ -369,11 +409,15 @@ const VALID_URGENCY  = ['Critical', 'Moderate', 'Minor'];
 
 function send(res, status, body, headers = {}, raw) {
   const payload = raw !== undefined ? raw : (typeof body === 'string' ? body : JSON.stringify(body));
-  res.writeHead(status, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Cache-Control': 'no-store',
-    ...headers,
-  });
+  const base = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
+  /* Serverless shim path (deploy/netlify.mjs): res is a plain object with
+   * writeHead()/end() capturing methods — no real http.ServerResponse. */
+  if (res && typeof res.writeHead === 'function' && !('headersSent' in res)) {
+    res.writeHead(status, { ...base, ...headers });
+    res.end(payload);
+    return;
+  }
+  res.writeHead(status, { ...base, ...headers });
   res.end(payload);
 }
 
@@ -467,7 +511,10 @@ function currentUser(req) {
 }
 
 function sessionCookie(token, maxAgeSec) {
-  return `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}`;
+  /* Secure is required for SameSite=None; Netlify serves over HTTPS so the
+   * flag is added there too. Local http dev stays without Secure. */
+  const secure = process.env.TASKHIVE_COOKIE_SECURE ? '; Secure' : '';
+  return `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${secure}`;
 }
 
 /* Public view of a person — never leaks the password field. */
@@ -531,7 +578,7 @@ async function handleApi(req, res, url) {
     if (!user) return send(res, 401, { error: 'authentication required' });
     if (user.role !== 'admin') return send(res, 403, { error: 'admin role required for import' });
     let b;
-    try { b = await readBody(req); } catch (e) { return send(res, 400, { error: e.message }); }
+    try { b = await readBody(req, body); } catch (e) { return send(res, 400, { error: e.message }); }
     const incoming = (b && b.db) ? b.db : b;   // accept wrapped or bare db object
     if (!incoming || !Array.isArray(incoming.tasks) || !Array.isArray(incoming.people)) {
       return send(res, 400, { error: 'invalid snapshot: expected an export JSON with tasks[] and people[]' });
@@ -551,7 +598,7 @@ async function handleApi(req, res, url) {
 
   /* --- auth --- */
   if (seg === 'login' && method === 'POST') {
-    const b = await readBody(req);
+    const b = await readBody(req, body);
     const email = String(b.email || '').trim().toLowerCase();
     const person = db.people.find(p => p.email && p.email.toLowerCase() === email);
     const ok = person && verifyPassword(String(b.password || ''), person.password);
@@ -572,7 +619,7 @@ async function handleApi(req, res, url) {
     return send(res, 200, user ? { user: publicPerson(user) } : { user: null });
   }
   if (seg === 'signup' && method === 'POST') {
-    const b = await readBody(req);
+    const b = await readBody(req, body);
     const name = String(b.name || '').trim().slice(0, 80);
     const email = String(b.email || '').trim().toLowerCase();
     const password = String(b.password || '');
@@ -626,7 +673,7 @@ async function handleApi(req, res, url) {
       if (method === 'GET') return send(res, 200, publicPerson(p));
       if (method === 'PATCH' || method === 'PUT') {
         if (!user || user.id !== p.id) return send(res, 403, { error: 'you can only edit your own profile' });
-        const b = await readBody(req);
+        const b = await readBody(req, body);
         if (typeof b.name === 'string' && b.name.trim()) {
           p.name = b.name.trim().slice(0, 80);
           p.initials = p.name.split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
@@ -663,7 +710,7 @@ async function handleApi(req, res, url) {
     if (method === 'PATCH' || method === 'PUT') {
       if (!user) return send(res, 401, { error: 'authentication required' });
       const pr = userPrefs(user.id);
-      const b = await readBody(req);
+      const b = await readBody(req, body);
       if (b.unread === false || b.read === true) pr.readFlags[it.id] = true;
       if (b.unread === true) delete pr.readFlags[it.id];
       saveDb();
@@ -683,7 +730,7 @@ async function handleApi(req, res, url) {
     const list = () => db.discussions[param] || [];
     if (method === 'GET' && param) return send(res, 200, list());
     if (method === 'POST' && param) {
-      const b = await readBody(req);
+      const b = await readBody(req, body);
       if (!b.text || !String(b.text).trim()) return send(res, 400, { error: 'text is required' });
       if (!db.tasks.some(t => t.id === param)) return send(res, 404, { error: 'task not found' });
       const c = {
@@ -712,7 +759,7 @@ async function handleApi(req, res, url) {
       })));
     }
     if (method === 'POST' && !param) {
-      const b = await readBody(req);
+      const b = await readBody(req, body);
       if (!b.name || !String(b.name).trim()) return send(res, 400, { error: 'name is required' });
       const id = String(b.name).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
         + '-' + crypto.randomBytes(2).toString('hex');
@@ -726,7 +773,7 @@ async function handleApi(req, res, url) {
     if (!proj) return send(res, 404, { error: 'project not found' });
     if (method === 'GET') return send(res, 200, proj);
     if (method === 'PATCH' || method === 'PUT') {
-      const b = await readBody(req);
+      const b = await readBody(req, body);
       if (b.name) proj.name = String(b.name).trim();
       if (b.desc !== undefined) proj.desc = String(b.desc);
       if (Array.isArray(b.members)) proj.members = b.members;
@@ -763,7 +810,7 @@ async function handleApi(req, res, url) {
       return send(res, 200, list);
     }
     if (method === 'POST' && !param) {
-      const b = await readBody(req);
+      const b = await readBody(req, body);
       if (!b.name || !String(b.name).trim()) return send(res, 400, { error: 'name is required' });
       let task;
       try {
@@ -791,7 +838,7 @@ async function handleApi(req, res, url) {
       if (byIdx !== -1) {
         if (method === 'GET') return send(res, 200, db.tasks[byIdx]);
         if (method === 'PATCH' || method === 'PUT') {
-          const b = await readBody(req);
+          const b = await readBody(req, body);
           try { db.tasks[byIdx] = sanitizeTask(b, db.tasks[byIdx]); }
           catch (e) { return send(res, 400, { error: e.message }); }
           upsertTaskRow(db.tasks[byIdx]);
@@ -815,7 +862,7 @@ async function handleApi(req, res, url) {
     }
     if (method === 'GET') return send(res, 200, db.tasks[idx]);
     if (method === 'PATCH' || method === 'PUT') {
-      const b = await readBody(req);
+      const b = await readBody(req, body);
       try {
         db.tasks[idx] = sanitizeTask(b, db.tasks[idx]);
       } catch (e) { return send(res, 400, { error: e.message }); }
@@ -835,7 +882,7 @@ async function handleApi(req, res, url) {
 
   /* --- board-level bulk update (drag & drop persistence) --- */
   if (seg === 'board' && method === 'PATCH') {
-    const b = await readBody(req);
+    const b = await readBody(req, body);
     if (!Array.isArray(b.order)) return send(res, 400, { error: 'order must be an array of task ids' });
     const known = new Set(db.tasks.map(t => t.id));
     if (!b.order.every(id => known.has(id))) return send(res, 400, { error: 'order contains unknown task ids' });
@@ -851,7 +898,7 @@ async function handleApi(req, res, url) {
     const pr = userPrefs(user.id);
     if (method === 'GET') return send(res, 200, { savedIds: pr.savedIds, readFlags: pr.readFlags, ui: pr.ui });
     if (method === 'PATCH' || method === 'PUT') {
-      const b = await readBody(req);
+      const b = await readBody(req, body);
       if (Array.isArray(b.savedIds)) pr.savedIds = b.savedIds.filter(x => typeof x === 'string');
       if (b.readFlags && typeof b.readFlags === 'object') pr.readFlags = b.readFlags;
       if (b.ui && typeof b.ui === 'object') pr.ui = { ...pr.ui, ...b.ui };
@@ -867,7 +914,7 @@ async function handleApi(req, res, url) {
       return send(res, 200, db.messages[param] || []);
     }
     if (method === 'POST' && param) {
-      const b = await readBody(req);
+      const b = await readBody(req, body);
       if (!b.text || !String(b.text).trim()) return send(res, 400, { error: 'text is required' });
       const msg = {
         by: user ? user.id : null,
@@ -926,6 +973,10 @@ function serveStatic(req, res, url) {
 /* Server                                                              */
 /* ------------------------------------------------------------------ */
 
+if (IS_MODULE) {
+  /* Netlify serverless mode: export the pure API handler + storage hooks. */
+  module.exports = { handleApi, readBody, loadDbAsync, flushSaves, seedData };
+} else {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
@@ -971,3 +1022,4 @@ server.listen(PORT, () => {
   console.log(`  API base:  http://localhost:${PORT}/api`);
   console.log(`  Data file: ${DB_FILE}`);
 });
+} /* end else (classic server mode) */
