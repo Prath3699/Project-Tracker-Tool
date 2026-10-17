@@ -1,0 +1,27 @@
+PASS click-on-switch toggles set-email-notif
+PASS set-email-notif state independent of others
+PASS click-on-switch toggles set-digest
+PASS set-digest state independent of others
+PASS click-on-switch toggles set-dark
+PASS set-dark state independent of others
+PASS restore round-trip
+PASS dark toggle flips theme instantly
+PASS desc reflects new theme
+PASS checkbox matches theme
+PASS aria-checked synced
+PASS keyboard Space toggles
+PASS keyboard Enter toggles back
+PASS state kept after nav away/back
+PASS state persisted across reload (server)
+PASS track OFF gray distinct from ON accent (light mode)
+PASS ON uses accent color (light)
+PASS thumb white circle (light)
+PASS track OFF gray distinct from ON accent (dark mode)
+PASS ON uses accent color (dark)
+PASS thumb white circle (dark)
+PASS mobile: switch right-aligned & vertically centered
+PASS pointer cursor
+PASS smooth transition
+PASS zero console/page errors
+
+25 passed, 0 failed
