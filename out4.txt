@@ -1,1 +1,0 @@
-{"isPillSelf":true,"closestMtPillOfElAt":true,"chain":["BUTTON.mt-pill","DIV.mt-pills","SECTION.page-pad","DIV.content","MAIN.main","DIV.app","BODY.","HTML."],"pillsTotal":5,"pillsInMain":5,"dupes":1}

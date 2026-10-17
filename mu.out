@@ -1,2 +1,0 @@
-PASS: A signed in as Parth | per-user prefs isolated (B does not inherit A saves) | bad password shows inline error | signup enters workspace | logout shows login screen again | API never exposes password field
-FAIL: none
