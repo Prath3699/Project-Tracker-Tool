@@ -578,7 +578,7 @@ async function handleApi(req, res, url) {
     if (!user) return send(res, 401, { error: 'authentication required' });
     if (user.role !== 'admin') return send(res, 403, { error: 'admin role required for import' });
     let b;
-    try { b = await readBody(req, body); } catch (e) { return send(res, 400, { error: e.message }); }
+    try { b = await readBody(req); } catch (e) { return send(res, 400, { error: e.message }); }
     const incoming = (b && b.db) ? b.db : b;   // accept wrapped or bare db object
     if (!incoming || !Array.isArray(incoming.tasks) || !Array.isArray(incoming.people)) {
       return send(res, 400, { error: 'invalid snapshot: expected an export JSON with tasks[] and people[]' });
@@ -598,7 +598,7 @@ async function handleApi(req, res, url) {
 
   /* --- auth --- */
   if (seg === 'login' && method === 'POST') {
-    const b = await readBody(req, body);
+    const b = await readBody(req);
     const email = String(b.email || '').trim().toLowerCase();
     const person = db.people.find(p => p.email && p.email.toLowerCase() === email);
     const ok = person && verifyPassword(String(b.password || ''), person.password);
@@ -619,7 +619,7 @@ async function handleApi(req, res, url) {
     return send(res, 200, user ? { user: publicPerson(user) } : { user: null });
   }
   if (seg === 'signup' && method === 'POST') {
-    const b = await readBody(req, body);
+    const b = await readBody(req);
     const name = String(b.name || '').trim().slice(0, 80);
     const email = String(b.email || '').trim().toLowerCase();
     const password = String(b.password || '');
@@ -673,7 +673,7 @@ async function handleApi(req, res, url) {
       if (method === 'GET') return send(res, 200, publicPerson(p));
       if (method === 'PATCH' || method === 'PUT') {
         if (!user || user.id !== p.id) return send(res, 403, { error: 'you can only edit your own profile' });
-        const b = await readBody(req, body);
+        const b = await readBody(req);
         if (typeof b.name === 'string' && b.name.trim()) {
           p.name = b.name.trim().slice(0, 80);
           p.initials = p.name.split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
@@ -710,7 +710,7 @@ async function handleApi(req, res, url) {
     if (method === 'PATCH' || method === 'PUT') {
       if (!user) return send(res, 401, { error: 'authentication required' });
       const pr = userPrefs(user.id);
-      const b = await readBody(req, body);
+      const b = await readBody(req);
       if (b.unread === false || b.read === true) pr.readFlags[it.id] = true;
       if (b.unread === true) delete pr.readFlags[it.id];
       saveDb();
@@ -730,7 +730,7 @@ async function handleApi(req, res, url) {
     const list = () => db.discussions[param] || [];
     if (method === 'GET' && param) return send(res, 200, list());
     if (method === 'POST' && param) {
-      const b = await readBody(req, body);
+      const b = await readBody(req);
       if (!b.text || !String(b.text).trim()) return send(res, 400, { error: 'text is required' });
       if (!db.tasks.some(t => t.id === param)) return send(res, 404, { error: 'task not found' });
       const c = {
@@ -759,7 +759,7 @@ async function handleApi(req, res, url) {
       })));
     }
     if (method === 'POST' && !param) {
-      const b = await readBody(req, body);
+      const b = await readBody(req);
       if (!b.name || !String(b.name).trim()) return send(res, 400, { error: 'name is required' });
       const id = String(b.name).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
         + '-' + crypto.randomBytes(2).toString('hex');
@@ -773,7 +773,7 @@ async function handleApi(req, res, url) {
     if (!proj) return send(res, 404, { error: 'project not found' });
     if (method === 'GET') return send(res, 200, proj);
     if (method === 'PATCH' || method === 'PUT') {
-      const b = await readBody(req, body);
+      const b = await readBody(req);
       if (b.name) proj.name = String(b.name).trim();
       if (b.desc !== undefined) proj.desc = String(b.desc);
       if (Array.isArray(b.members)) proj.members = b.members;
@@ -810,7 +810,7 @@ async function handleApi(req, res, url) {
       return send(res, 200, list);
     }
     if (method === 'POST' && !param) {
-      const b = await readBody(req, body);
+      const b = await readBody(req);
       if (!b.name || !String(b.name).trim()) return send(res, 400, { error: 'name is required' });
       let task;
       try {
@@ -838,7 +838,7 @@ async function handleApi(req, res, url) {
       if (byIdx !== -1) {
         if (method === 'GET') return send(res, 200, db.tasks[byIdx]);
         if (method === 'PATCH' || method === 'PUT') {
-          const b = await readBody(req, body);
+          const b = await readBody(req);
           try { db.tasks[byIdx] = sanitizeTask(b, db.tasks[byIdx]); }
           catch (e) { return send(res, 400, { error: e.message }); }
           upsertTaskRow(db.tasks[byIdx]);
@@ -862,7 +862,7 @@ async function handleApi(req, res, url) {
     }
     if (method === 'GET') return send(res, 200, db.tasks[idx]);
     if (method === 'PATCH' || method === 'PUT') {
-      const b = await readBody(req, body);
+      const b = await readBody(req);
       try {
         db.tasks[idx] = sanitizeTask(b, db.tasks[idx]);
       } catch (e) { return send(res, 400, { error: e.message }); }
@@ -882,7 +882,7 @@ async function handleApi(req, res, url) {
 
   /* --- board-level bulk update (drag & drop persistence) --- */
   if (seg === 'board' && method === 'PATCH') {
-    const b = await readBody(req, body);
+    const b = await readBody(req);
     if (!Array.isArray(b.order)) return send(res, 400, { error: 'order must be an array of task ids' });
     const known = new Set(db.tasks.map(t => t.id));
     if (!b.order.every(id => known.has(id))) return send(res, 400, { error: 'order contains unknown task ids' });
@@ -898,7 +898,7 @@ async function handleApi(req, res, url) {
     const pr = userPrefs(user.id);
     if (method === 'GET') return send(res, 200, { savedIds: pr.savedIds, readFlags: pr.readFlags, ui: pr.ui });
     if (method === 'PATCH' || method === 'PUT') {
-      const b = await readBody(req, body);
+      const b = await readBody(req);
       if (Array.isArray(b.savedIds)) pr.savedIds = b.savedIds.filter(x => typeof x === 'string');
       if (b.readFlags && typeof b.readFlags === 'object') pr.readFlags = b.readFlags;
       if (b.ui && typeof b.ui === 'object') pr.ui = { ...pr.ui, ...b.ui };
@@ -914,7 +914,7 @@ async function handleApi(req, res, url) {
       return send(res, 200, db.messages[param] || []);
     }
     if (method === 'POST' && param) {
-      const b = await readBody(req, body);
+      const b = await readBody(req);
       if (!b.text || !String(b.text).trim()) return send(res, 400, { error: 'text is required' });
       const msg = {
         by: user ? user.id : null,
